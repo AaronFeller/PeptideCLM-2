@@ -1,4 +1,4 @@
-# PeptideCLM-2
+# PeptideMTR
 This work was developed in the [Wilke lab](https://wilkelab.org/) by Aaron Feller ([Department of Molecular Biosciences](https://molecularbiosci.utexas.edu/) at [The University of Texas at Austin](https://www.utexas.edu/)).
 
 ## Table of Contents

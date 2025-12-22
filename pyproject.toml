@@ -1,0 +1,21 @@
+[project]
+name = "peptidemtr"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "numpy>=2.2.6",
+    "pandas>=2.3.3",
+    "pip>=25.3",
+    "plotnine>=0.15.2",
+    "rdkit>=2025.9.3",
+    "scikit-learn>=1.7.2",
+    "scipy>=1.15.3",
+    "seaborn>=0.13.2",
+    "torch>=2.9.1",
+    "torchao>=0.15.0",
+    "torchtune>=0.6.1",
+    "transformers>=4.57.3",
+]
