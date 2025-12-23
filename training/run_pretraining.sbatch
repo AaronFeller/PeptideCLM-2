@@ -7,7 +7,7 @@
 #SBATCH --gpus-per-node=8
 #SBATCH --cpus-per-task=28
 #SBATCH --mem=2000000M
-#SBATCH --job-name=novo-mtr
+#SBATCH --job-name=YOUR_JOBNAME_HERE
 #SBATCH --output=/your/dir/here/%j.output.log
 #SBATCH --error=/your/dir/here/%j.error.log
 
