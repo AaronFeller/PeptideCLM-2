@@ -5,7 +5,7 @@ set -e
 # USER CONFIGURATION
 ###############################################
 
-DATASETS=("AmpHGT" "MHC" "THPep" "CellPPD")
+DATASETS=("AmpHGT" "THPep" "CellPPD")
 
 MODELS=(
     "aaronfeller/PeptideMTR_sm"
@@ -19,9 +19,9 @@ MODELS=(
     "aaronfeller/PeptideMLM-MTR_lg"
 )
 
-GPUS=(4 5 6)
+GPUS=(4 5 6) # Available GPUs here
 
-TRAIN_SCRIPT="scripts/train_model.py"
+TRAIN_SCRIPT="classification_finetuning.py"
 
 LOG_DIR="logs/launcher"
 mkdir -p "$LOG_DIR"
@@ -61,18 +61,6 @@ declare -a JOB_MODELS
 
 for MODEL in "${MODELS[@]}"; do
     for DATASET in "${DATASETS[@]}"; do
-        
-        # Skip already-completed AmpHGT runs
-        if [[ "$DATASET" == "AmpHGT" && ("$MODEL" == *"_sm"* || "$MODEL" == *"_base"*) ]]; then
-            echo "[SKIP] Already completed: $DATASET $MODEL"
-            continue
-        fi
-
-        if [[ "$DATASET" == "CellPPD" && "$MODEL" == *"MLM-MTR_sm"* ]]; then
-            echo "[SKIP] Already completed: $DATASET $MODEL"
-            continue
-        fi
-
         JOB_DATASETS+=("$DATASET")
         JOB_MODELS+=("$MODEL")
     done
