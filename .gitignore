@@ -26,3 +26,4 @@ share/python-wheels/
 *.egg
 MANIFEST
 fig5*.csv
+updating_hf.ipynb
