@@ -12,7 +12,7 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from transformers import AutoTokenizer
-from models.MTR_model_v3 import MTR_model
+from model.MTR_model import MTR_model
 from transformers import AutoTokenizer
 
 torch.set_float32_matmul_precision('high')
