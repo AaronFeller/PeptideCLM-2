@@ -4,12 +4,12 @@ This work was developed as a collaboration between **Novo Nordisk** and the **Wi
 
 ### Authors
 * **Aaron L. Feller** [1,2]* (aaron.feller@utexas.edu)
-* **Maxim Secor** [2]
-* **Sebastian Swanson** [2]
-* **Claus O. Wilke** [1]
-* **Kristine Deibler** [2]
+* **Maxim Secor** [1]
+* **Sebastian Swanson** [1]
+* **Claus O. Wilke** [2]
+* **Kristine Deibler** [1]
 
-**[1] Integrative Biology, The University of Texas at Austin** **[2] Molecular AI, Novo Nordisk**
+**[1] Molecular AI, Novo Nordisk** **[2]; Integrative Biology, The University of Texas at Austin** 
 
 ---
 
@@ -86,3 +86,4 @@ Contributions are welcome! Please submit a pull request or open an issue to disc
 
 ## License
 The author(s) are protected under the MIT License - see the LICENSE file for details.
+
