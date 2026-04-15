@@ -28,8 +28,8 @@ This work was developed as a collaboration between **Novo Nordisk** and the **Wi
 PeptideMTR is transformer-based representation learning suite for therapeutic peptides. The project investigates how explicit physicochemical information (99 RDKit descriptors) used during training can enhance the predictive power of peptide models.
 
 The framework benchmarks three distinct architectural approaches:
-1. **MLM (Masked Language Modeling):** Purely sequence-based learning via amino acid tokens.
-2. **MTR-only:** Regression models trained using a curated set of 99 RDKit physicochemical descriptors.
+1. **MLM (masked language modeling):** Purely sequence-based learning via amino acid tokens.
+2. **MTR (multi-task regression)** Regression models trained using a curated set of 99 RDKit physicochemical descriptors.
 3. **MLM-MTR (Hybrid):** A dual-objective architecture that leverages both latent sequence patterns and explicit chemical descriptors during the training phase.
 
 
