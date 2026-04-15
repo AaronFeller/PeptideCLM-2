@@ -71,9 +71,9 @@ All 9 model variants associated with the forthcoming paper are hosted on Hugging
 
 | Model Variant | Strategy | Training Features |
 | :--- | :--- | :--- |
-| **PeptideMTR-MLM** | Sequence Pre-training | Masked SMILES tokens |
-| **PeptideMTR-MTR** | Multi-Target Regression | 99 RDKit Descriptors |
-| **PeptideMTR-Hybrid** | Split-Head Architecture | Masked SMILES tokens & 99 RDKit Descriptors |
+| **PeptideCLM-2 MLM** | Sequence Pre-training | Masked SMILES tokens |
+| **PeptideCLM-2 MTR** | Multi-Target Regression | 99 RDKit Descriptors |
+| **PeptideCLM-2 Hybrid** | Split-Head Architecture | Masked SMILES tokens & 99 RDKit Descriptors |
 
 ## Tokenizer
 The project utilizes a custom tokenizer optimized for the peptide chemical space. This ensures robust handling of both standard and non-canonical amino acids, facilitating the mapping of SMILES strings to the model's latent space.
