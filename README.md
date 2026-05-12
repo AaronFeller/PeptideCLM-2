@@ -16,11 +16,11 @@ This work was developed as a collaboration between **Novo Nordisk** and the **Wi
 ## Table of Contents
 - [Introduction](#introduction)
 - [Getting Started](#getting-started)
-  - [Installation](#installation)
-  - [Usage](#usage)
-- [Models](#models)
-- [Tokenizer](#tokenizer)
-- [Datasets](#datasets)
+  - [Models](#models)
+  - [Tokenizer](#tokenizer)
+  - [Example Script](#usage)
+  - [Datasets](#datasets)
+- [Repository Installation](#repository-installation)
 - [Contributing](#contributing)
 - [License](#license)
 
