@@ -1,5 +1,6 @@
 import argparse
 import os
+import random
 import torch
 import torch.nn as nn
 import lightning as pl
@@ -18,6 +19,15 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+
+def seed_everything(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    pl.seed_everything(seed, workers=True)
 
 
 ###############################################
@@ -137,8 +147,20 @@ class PeptideModel(pl.LightningModule):
 # TRAIN FUNCTION
 ###############################################
 
-def train_model(train_smiles, train_labels, val_smiles, val_labels, target,
-                model_name, gpu, batch_size=None, max_epochs=10, learning_rate=3e-4):
+def train_model(
+    train_smiles,
+    train_labels,
+    val_smiles,
+    val_labels,
+    target,
+    model_name,
+    gpu,
+    run_name,
+    log_dir,
+    batch_size=None,
+    max_epochs=10,
+    learning_rate=3e-4,
+):
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
@@ -186,11 +208,11 @@ def train_model(train_smiles, train_labels, val_smiles, val_labels, target,
 
     trainer = pl.Trainer(
         max_epochs=max_epochs,
-        accelerator="gpu",
-        devices=1,#[gpu],
+        accelerator="gpu" if torch.cuda.is_available() else "cpu",
+        devices=1,
         strategy="single_device",
         val_check_interval=0.5,
-        logger=CSVLogger(f"logs/{save_path}", name=f"{dataset}_{model_name.split('/')[-1]}"),
+        logger=CSVLogger(log_dir, name=run_name),
         log_every_n_steps=10,
         callbacks=[checkpoint_cb, earlystop_cb],
     )
@@ -258,23 +280,32 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", required=True, choices=["AmpHGT", "MHC", "THPep", "CellPPD"])
     parser.add_argument("--gpu", type=int, required=True)
+    parser.add_argument("--gpu_index", type=int, default=None)
     parser.add_argument("--model_name", required=True)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--save_path", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, default=None)
+    parser.add_argument("--data_dir", type=str, default="data")
+    parser.add_argument("--log_dir", type=str, default="tmp/logs/classification")
+    parser.add_argument("--seed", type=int, required=True)
     args = parser.parse_args()
 
     dataset = args.dataset
-    gpu = args.gpu
+    gpu = args.gpu_index if args.gpu_index is not None else args.gpu
     model_name = args.model_name
     batch_size = args.batch_size
-    save_path = args.save_path
+    save_path = args.output_dir or args.save_path
+    data_dir = args.data_dir
+    log_dir = args.log_dir
+    seed_everything(args.seed)
 
-    train_df = pd.read_csv(f"data/{dataset}_train.csv")
-    val_path = f"data/{dataset}_val.csv"
-    test_path = f"data/{dataset}_test.csv"
+    train_df = pd.read_csv(os.path.join(data_dir, f"{dataset}_train.csv"))
+    val_path = os.path.join(data_dir, f"{dataset}_val.csv")
+    test_path = os.path.join(data_dir, f"{dataset}_test.csv")
 
     val_df = pd.read_csv(val_path) if os.path.exists(val_path) else None
     test_df = pd.read_csv(test_path) if os.path.exists(test_path) else None
+    run_name = f"{dataset}_{model_name.split('/')[-1]}_seed{args.seed}"
 
     task = infer_task(train_df["label"])
 
@@ -285,7 +316,7 @@ if __name__ == "__main__":
     if val_df is not None and test_df is not None:
         model = train_model(train_df["smiles"], train_df["label"],
                             val_df["smiles"], val_df["label"],
-                            task, model_name, gpu, batch_size=batch_size)
+                            task, model_name, gpu, run_name, log_dir, batch_size=batch_size)
 
         preds = evaluate_on_test_set(model, test_df["smiles"], test_df["label"], model_name, batch_size=64)
 
@@ -300,7 +331,7 @@ if __name__ == "__main__":
 
     else:
         # fallback to 5-fold CV
-        kf = KFold(n_splits=5, shuffle=True)
+        kf = KFold(n_splits=5, shuffle=True, random_state=args.seed)
 
         all_results = []
 
@@ -310,7 +341,7 @@ if __name__ == "__main__":
 
             model = train_model(tr["smiles"], tr["label"],
                                 va["smiles"], va["label"],
-                                task, model_name, gpu, batch_size=batch_size)
+                                task, model_name, gpu, run_name, log_dir, batch_size=batch_size)
 
             if test_df is not None:
                 preds = evaluate_on_test_set(model, test_df["smiles"], test_df["label"], model_name, batch_size=64)

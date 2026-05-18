@@ -179,7 +179,7 @@ def parse_args():
     parser.add_argument("--patience", type=int, default=3)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, required=True)
     return parser.parse_args()
 
 

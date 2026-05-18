@@ -198,14 +198,17 @@ class RegressionModel(pl.LightningModule):
 
         # return [optimizer], scheduler
 
-def main(model_name, file_path, batch_size, transfer_learning, save_dir, save_name, checkpoint=None, random_init=False):
+def main(model_name, file_path, batch_size, transfer_learning, save_dir, save_name, checkpoint=None, random_init=False, seed=None):
+    if seed is None:
+        raise ValueError("Please provide a seed using --seed.")
+    pl.seed_everything(seed, workers=True)
     # Load the dataset
     df = pd.read_csv(file_path)
 
     # normalize the 'value' column (Does not seem to improve results)
     # df['value'] = (df['value'] - df['value'].mean()) / (df['value'].std() + 1e-8)  # Add a small constant to avoid division by zero
 
-    tokenizer = AutoTokenizer.from_pretrained("aaronfeller/PeptideMTR")
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     tokenizer.model_max_length = 2048
     vocab_size = tokenizer.vocab_size
 
@@ -291,7 +294,7 @@ def main(model_name, file_path, batch_size, transfer_learning, save_dir, save_na
             val_df = ensemble_df[ensemble_df['fold'] == fold]
 
             # # bin and sample the training set to have the same number of samples per bin
-            train_df = train_df.groupby(pd.cut(train_df['value'], bins=5)).apply(lambda x: x.sample(n=train_df.groupby(pd.cut(train_df['value'], bins=5)).size().max(), replace=True, random_state=42)).reset_index(drop=True)
+            train_df = train_df.groupby(pd.cut(train_df['value'], bins=5)).apply(lambda x: x.sample(n=train_df.groupby(pd.cut(train_df['value'], bins=5)).size().max(), replace=True, random_state=seed)).reset_index(drop=True)
 
             train_dataset = Dataset.from_pandas(train_df)
             train_dataset = train_dataset.map(tokenize_function, batched=True, fn_kwargs={'tokenizer': tokenizer})
@@ -322,7 +325,7 @@ def main(model_name, file_path, batch_size, transfer_learning, save_dir, save_na
 
             # run_name = f"{model_name.replace('/', '-')}_fold_{fold}_external"
             # wandb_logger = WandbLogger(
-            #     project="PeptideMTR",
+            #     project="PeptideCLM-2",
             #     name=run_name,
             #     log_model=True,
             #     save_dir="checkpoints/"
@@ -446,8 +449,10 @@ def main(model_name, file_path, batch_size, transfer_learning, save_dir, save_na
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune MTR model on external dataset")
-    parser.add_argument('-i', '--file_path', type=str, default=None, choices=['stab', 'fibril', 'perm'], 
-                        help='Path to the external dataset CSV file')
+    parser.add_argument('-i', '--file_path', type=str, default=None,
+                        help='Named dataset alias (stab, fibril, perm) or a direct CSV path')
+    parser.add_argument('--data_csv', type=str, default=None,
+                        help='Direct CSV path overriding --file_path aliases')
     parser.add_argument('-bs', '--batch_size', type=int, default=16, 
                         help='Batch size for training')
     parser.add_argument('--transfer_learning', action='store_true', 
@@ -462,9 +467,13 @@ if __name__ == "__main__":
                         help='Path to a specific checkpoint to load for fine-tuning')
     parser.add_argument('--random_init', action='store_true',
                         help='Randomly initialize the MTR model instead of loading a pre-trained checkpoint')
+    parser.add_argument('--seed', type=int, required=True,
+                        help='Random seed for fold ordering and training reproducibility')
     args = parser.parse_args()
 
-    if args.file_path is None:
+    if args.data_csv is not None:
+        file_path = args.data_csv
+    elif args.file_path is None:
         raise ValueError("Please provide a file path using --file_path argument.")
     elif args.file_path == 'stab':
         file_path = 'finetuning/stability_external.csv'
@@ -472,6 +481,10 @@ if __name__ == "__main__":
         file_path = 'finetuning/fibril_external.csv'
     elif args.file_path == 'perm':
         file_path = 'finetuning/perm_external.csv'
+    elif args.file_path.endswith('.csv'):
+        file_path = args.file_path
+    else:
+        raise ValueError("Unsupported --file_path value. Use stab, fibril, perm, or a direct CSV path.")
 
     batch_size = args.batch_size
     transfer_learning = args.transfer_learning
@@ -480,4 +493,4 @@ if __name__ == "__main__":
         raise ValueError("Please provide a model name using --model argument.")
     save_dir = args.save_dir
 
-    main(model_name, file_path, batch_size, transfer_learning, save_dir, args.save_name, checkpoint=args.checkpoint, random_init=args.random_init)
+    main(model_name, file_path, batch_size, transfer_learning, save_dir, args.save_name, checkpoint=args.checkpoint, random_init=args.random_init, seed=args.seed)

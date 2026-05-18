@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "artifact_policy": {
+    "temp_run_root": "tmp/runs",
+    "temp_log_root": "tmp/logs",
+    "durable_figure_data_root": "figure_generation/figure_data",
+    "durable_figure_root": "figure_generation/figures",
+    "durable_manuscript_root": "manuscript"
+  },
+  "tasks": [
+    {
+      "task_id": "amp_hgt",
+      "display_name": "AMP-HGT",
+      "task_type": "classification",
+      "status": "active",
+      "primary_metrics": ["mcc", "auroc", "f1"],
+      "secondary_metrics": ["accuracy", "precision", "recall"],
+      "sample_id_column": "smiles",
+      "input_column": "smiles",
+      "label_column": "label",
+      "split_semantics": "fixed_train_val_test",
+      "split_files": {
+        "train": "data/amp_train.csv",
+        "val": "data/amp_val.csv",
+        "test": "data/amp_test.csv"
+      },
+      "target_outputs": {
+        "figure_data": ["classification_seed_metrics.csv"],
+        "manuscript_tables": ["main.tex", "supplement.tex"]
+      }
+    },
+    {
+      "task_id": "cellppd",
+      "display_name": "CellPPD",
+      "task_type": "classification",
+      "status": "active",
+      "primary_metrics": ["mcc", "auroc", "f1"],
+      "secondary_metrics": ["accuracy", "precision", "recall"],
+      "sample_id_column": "smiles",
+      "input_column": "smiles",
+      "label_column": "label",
+      "split_semantics": "fixed_train_val_test",
+      "split_files": {
+        "train": "data/CellPPD_train.csv",
+        "test": "data/CellPPD_test.csv"
+      },
+      "target_outputs": {
+        "figure_data": ["classification_seed_metrics.csv"],
+        "manuscript_tables": ["main.tex", "supplement.tex"]
+      }
+    },
+    {
+      "task_id": "thpep",
+      "display_name": "THPep",
+      "task_type": "classification",
+      "status": "active",
+      "primary_metrics": ["mcc", "auroc", "f1"],
+      "secondary_metrics": ["accuracy", "precision", "recall"],
+      "sample_id_column": "id",
+      "input_column": "smiles",
+      "label_column": "class",
+      "split_semantics": "cluster_aware_single_table",
+      "split_files": {
+        "full": "data/THPep_main90_smiles_classes.csv"
+      },
+      "target_outputs": {
+        "figure_data": ["fig4A_THPep_embeddings.csv", "classification_seed_metrics.csv"],
+        "manuscript_tables": ["main.tex", "supplement.tex"]
+      }
+    },
+    {
+      "task_id": "pepmsnd",
+      "display_name": "PepMSND",
+      "task_type": "classification",
+      "status": "active",
+      "primary_metrics": ["mcc", "auroc", "f1"],
+      "secondary_metrics": ["accuracy", "precision", "recall"],
+      "sample_id_column": "ID",
+      "input_column": "SMILES",
+      "label_column": "label",
+      "split_semantics": "cluster_fold_table",
+      "split_files": {
+        "full": "data/PepMSND_clustered_data.csv"
+      },
+      "target_outputs": {
+        "figure_data": ["pepmsnd_seed_metrics.csv"],
+        "manuscript_tables": ["main.tex", "supplement.tex"]
+      }
+    },
+    {
+      "task_id": "cycpeptmpdb_perm",
+      "display_name": "CycPeptMPDB PAMPA",
+      "task_type": "regression",
+      "status": "active",
+      "primary_metrics": ["r2", "rmse", "mae"],
+      "secondary_metrics": ["spearman"],
+      "sample_id_column": "SMILES",
+      "input_column": "SMILES",
+      "label_column": "PAMPA",
+      "split_semantics": "cluster_fold_table",
+      "split_files": {
+        "full": "data/PAMPA_clusters.csv"
+      },
+      "target_outputs": {
+        "figure_data": ["fig3D_lasso_predictions.csv", "permeability_seed_metrics.csv"],
+        "manuscript_tables": ["main.tex", "supplement.tex"]
+      }
+    },
+    {
+      "task_id": "fibrillation",
+      "display_name": "Fibrillation",
+      "task_type": "regression",
+      "status": "deferred",
+      "primary_metrics": ["r2", "rmse", "mae"],
+      "secondary_metrics": [],
+      "sample_id_column": "SMILES",
+      "input_column": "SMILES",
+      "label_column": "value",
+      "split_semantics": "external_file",
+      "split_files": {},
+      "target_outputs": {
+        "figure_data": [],
+        "manuscript_tables": ["supplement.tex"]
+      }
+    }
+  ]
+}

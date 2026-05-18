@@ -16,7 +16,7 @@ source .venv/bin/activate
 
 # dataset options: 1:PubChem+LMSD+ESMAtlas, 2:PubChem+LMSD, 3:ESMAtlas
 # --span for span masking, otherwise random masking will be used
-# --tokenizer atomistic for atomistic tokenizer, otherwise PeptideMTR tokenizer will be used
+# --tokenizer atomistic for atomistic tokenizer, otherwise the PeptideCLM-2 tokenizer will be used
 # --model_size Small, Medium, Large
 # --alpha and --beta are the weights for the loss function, default is 0.6 (MLM) and 0.4 (MTR)
 # --warmup_steps is the number of warmup steps

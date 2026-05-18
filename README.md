@@ -1,4 +1,4 @@
-# PeptideMTR
+# PeptideCLM-2
 
 This work was developed as a collaboration between **Novo Nordisk** and the **Wilke lab** at **The University of Texas at Austin**.
 
@@ -25,7 +25,7 @@ This work was developed as a collaboration between **Novo Nordisk** and the **Wi
 - [License](#license)
 
 ## Introduction
-PeptideMTR is transformer-based representation learning suite for therapeutic peptides. The project investigates how explicit physicochemical information (99 RDKit descriptors) used during training can enhance the predictive power of peptide models.
+PeptideCLM-2 is a transformer-based representation learning suite for therapeutic peptides. The project investigates how explicit physicochemical information (99 RDKit descriptors) used during training can enhance the predictive power of peptide models.
 
 The framework benchmarks three distinct architectural approaches:
 1. **MLM (masked language modeling):** Purely sequence-based learning via amino acid tokens.
@@ -50,7 +50,7 @@ All 9 model variants associated with the forthcoming paper are hosted on Hugging
 The project utilizes a custom tokenizer optimized for the peptide chemical space. This ensures robust handling of both standard and non-canonical amino acids, facilitating the mapping of SMILES strings to the model's latent space.
 
 ### Usage
-PeptideMTR models are designed for ease of use. Regardless of the training objective (including the MTR variants), all models accept a **SMILES string** as the primary input for inference. 
+PeptideCLM-2 models are designed for ease of use. Regardless of the training objective (including the MTR variants), all models accept a **SMILES string** as the primary input for inference. 
 
 If you would like to use the models, they are hosted on Huggingface. An example script is below:
 
@@ -86,7 +86,7 @@ print(f"Embedding shape: {embeddings.shape}")
 ```
 
 ### Datasets
-The training and validation data used to develop these models—including the 99 pre-computed RDKit descriptors and their corresponding biochemical targets—are available at [PeptideMTR_pretraining_data](https://huggingface.co/datasets/aaronfeller/peptideclm-2-pretraining-data).
+The training and validation data used to develop these models—including the 99 pre-computed RDKit descriptors and their corresponding biochemical targets—are available at [PeptideCLM-2 pretraining data](https://huggingface.co/datasets/aaronfeller/peptideclm-2-pretraining-data).
 
 
 ## Repository Installation
@@ -95,16 +95,18 @@ If you would like to set up an environment and use the code for recreating the m
 
 This repository uses `pyproject.toml` for dependency management. We recommend using [uv](https://github.com/astral-sh/uv) for an extremely fast and reproducible setup.
 
+Use Python 3.11 or 3.12 for the full retraining stack. The combined environment, including the CheMeleon/ChemProp extras, resolves cleanly in that range; Python 3.13 currently trips over a `pyarrow` build issue pulled in through `polaris-lib`.
+
 1. **Clone the repository:**
    ```
-   git clone https://github.com/aaronfeller/PeptideMTR.git
-   cd PeptideMTR
+   git clone https://github.com/AaronFeller/PeptideCLM-2.git
+   cd PeptideCLM-2
    ```
 
 3. **Install dependencies and create a virtual environment:**
-   Using `uv`, you can sync the entire environment in seconds:  
+   Using `uv`, you can sync the entire environment in seconds. For the full manuscript retraining stack, include the baseline and CheMeleon extras:
    ```
-   uv sync
+   uv sync --python 3.11 --extra baselines --extra chemeleon
    ```
 
 5. **Activate the environment:**
@@ -115,7 +117,7 @@ This repository uses `pyproject.toml` for dependency management. We recommend us
 
 Alternatively, you can install the packages using standard pip:
   ```
-  pip install .
+   pip install '.[baselines,chemeleon]'
   ```
 
 ## Contributing

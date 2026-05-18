@@ -8,15 +8,15 @@ set -e
 DATASETS=("AmpHGT" "THPep" "CellPPD")
 
 MODELS=(
-    "aaronfeller/PeptideMTR_sm"
-    "aaronfeller/PeptideMTR_base"
-    "aaronfeller/PeptideMTR_lg"
-    "aaronfeller/PeptideMLM_sm"
-    "aaronfeller/PeptideMLM_base"
-    "aaronfeller/PeptideMLM_lg"
-    "aaronfeller/PeptideMLM-MTR_sm"
-    "aaronfeller/PeptideMLM-MTR_base"
-    "aaronfeller/PeptideMLM-MTR_lg"
+    "aaronfeller/peptideclm-2-mlm-small"
+    "aaronfeller/peptideclm-2-mlm-base"
+    "aaronfeller/peptideclm-2-mlm-large"
+    "aaronfeller/peptideclm-2-mtr-small"
+    "aaronfeller/peptideclm-2-mtr-base"
+    "aaronfeller/peptideclm-2-mtr-large"
+    "aaronfeller/peptideclm-2-hybrid-small"
+    "aaronfeller/peptideclm-2-hybrid-base"
+    "aaronfeller/peptideclm-2-hybrid-large"
 )
 
 GPUS=(4 5 6) # Available GPUs here

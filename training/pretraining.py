@@ -303,7 +303,7 @@ def main(args=None):
     
     # Load tokenizer
     if args.tokenizer == 'kmer':
-        tokenizer = AutoTokenizer.from_pretrained("aaronfeller/PeptideMTR")
+        tokenizer = AutoTokenizer.from_pretrained("aaronfeller/peptideclm-2-hybrid-small", trust_remote_code=True)
     elif args.tokenizer == 'atomistic':
         tokenizer = AutoTokenizer.from_pretrained("novonordisk-red/PubChemBERT-large")
 
@@ -353,7 +353,7 @@ def main(args=None):
     
     # Setup logging and callbacks
     wandb_logger = WandbLogger(
-        project="PeptideMTR",
+        project="PeptideCLM-2",
         name=run_name,
         log_model=True,
         save_dir="checkpoints/"
@@ -402,7 +402,7 @@ def main(args=None):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Train MTR model with specified configurations.")
+    parser = argparse.ArgumentParser(description="Train a PeptideCLM-2 pretraining model with specified configurations.")
     parser.add_argument('--model_size', type=str, choices=['Small', 'Medium', 'Large', 'Huge'], default='Small', help="Size of the model to train.")
     parser.add_argument('--total_steps', type=int, default=100_000, help="Total number of training steps.")
     parser.add_argument('--learning_rate', type=float, default=3e-4, help="Learning rate for the optimizer.")
@@ -413,7 +413,7 @@ if __name__ == "__main__":
     parser.add_argument('--warmup_steps', type=int, default=5000, help="Number of warmup steps for the learning rate scheduler.")
     parser.add_argument('--weight_decay', type=float, default=0, help="Weight decay for the optimizer.")
     parser.add_argument('--dataset_option', type=int, choices=[1, 2, 3], default=2, help="Choose dataset option: 1 for pubchem, 2 for pubchem+ESMAtlas, 3 for ESMAtlas.")
-    parser.add_argument('--tokenizer', type=str, default='aaronfeller/PeptideMTR', help="Tokenizer to use for the model.")
+    parser.add_argument('--tokenizer', type=str, choices=['kmer', 'atomistic'], default='kmer', help="Tokenizer family to use for the model.")
     parser.add_argument('--masking_percentage', type=float, default=0.15, help="Percentage of tokens to mask during training.")
     parser.add_argument('--span', action='store_true', help="Use span masking instead of random masking.")
     parser.add_argument('--save_name', type=str, default='MTR_training', help="Name for saving the model checkpoints.")
