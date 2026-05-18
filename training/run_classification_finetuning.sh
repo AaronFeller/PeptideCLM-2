@@ -5,7 +5,7 @@ set -e
 # USER CONFIGURATION
 ###############################################
 
-DATASETS=("AmpHGT" "THPep" "CellPPD")
+DATASETS=("amp" "THPep" "CellPPD")
 
 MODELS=(
     "aaronfeller/peptideclm-2-mlm-small"

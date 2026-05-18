@@ -20,6 +20,13 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
+CLASSIFICATION_DATASET_FILES = {
+    "amp": "amp",
+    "AmpHGT": "amp",
+    "THPep": "THPep",
+    "CellPPD": "CellPPD",
+}
+
 
 def seed_everything(seed: int) -> None:
     random.seed(seed)
@@ -278,7 +285,7 @@ def infer_task(labels):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", required=True, choices=["AmpHGT", "MHC", "THPep", "CellPPD"])
+    parser.add_argument("--dataset", required=True, choices=sorted(CLASSIFICATION_DATASET_FILES))
     parser.add_argument("--gpu", type=int, required=True)
     parser.add_argument("--gpu_index", type=int, default=None)
     parser.add_argument("--model_name", required=True)
@@ -291,6 +298,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dataset = args.dataset
+    dataset_prefix = CLASSIFICATION_DATASET_FILES[dataset]
     gpu = args.gpu_index if args.gpu_index is not None else args.gpu
     model_name = args.model_name
     batch_size = args.batch_size
@@ -299,9 +307,9 @@ if __name__ == "__main__":
     log_dir = args.log_dir
     seed_everything(args.seed)
 
-    train_df = pd.read_csv(os.path.join(data_dir, f"{dataset}_train.csv"))
-    val_path = os.path.join(data_dir, f"{dataset}_val.csv")
-    test_path = os.path.join(data_dir, f"{dataset}_test.csv")
+    train_df = pd.read_csv(os.path.join(data_dir, f"{dataset_prefix}_train.csv"))
+    val_path = os.path.join(data_dir, f"{dataset_prefix}_val.csv")
+    test_path = os.path.join(data_dir, f"{dataset_prefix}_test.csv")
 
     val_df = pd.read_csv(val_path) if os.path.exists(val_path) else None
     test_df = pd.read_csv(test_path) if os.path.exists(test_path) else None

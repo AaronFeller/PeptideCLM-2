@@ -15,7 +15,7 @@ from training.experiment.output_schema import build_run_layout
 
 
 TASK_TO_DATASET = {
-    "amp_hgt": "AmpHGT",
+    "amp_hgt": "amp",
     "cellppd": "CellPPD",
     "thpep": "THPep",
 }

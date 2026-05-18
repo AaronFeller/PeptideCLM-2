@@ -1,4 +1,12 @@
 .venv/
+.venv311/
+.vscode/
+tmp/
+env/
+manuscript/
+test_*/
+
+
 .prototype/
 .python-version
 __pycache__/
