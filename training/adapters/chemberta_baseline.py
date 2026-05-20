@@ -217,8 +217,10 @@ def train_and_predict_fixed(args: argparse.Namespace, task_spec, config: TrainCo
     frames = load_task_frames(args.task, args.seed, args.prepared_data_root)
     train_df = frames["train"]
     test_df = frames["test"]
-    input_column = task_spec.input_column
-    label_column = task_spec.label_column
+    
+    # Overruled to match prepared standardized schemas
+    input_column = "smiles"
+    label_column = "label"
 
     if "val" in frames:
         val_df = frames["val"]
@@ -260,8 +262,10 @@ def train_and_predict_regression_cv(args: argparse.Namespace, task_spec, config:
     full_df = load_task_frames(args.task, args.seed, args.prepared_data_root)["full"].copy().sort_values("fold").reset_index(drop=True)
     fold_ids = sorted(full_df["fold"].unique().tolist())
     predictions = np.zeros(len(full_df), dtype=np.float32)
-    input_column = task_spec.input_column
-    label_column = task_spec.label_column
+    
+    # Overruled to match prepared standardized schemas
+    input_column = "smiles"
+    label_column = "value"
 
     for fold_id in fold_ids:
         test_mask = full_df["fold"] == fold_id
@@ -312,7 +316,7 @@ def main() -> int:
 
     if task_spec.task_type == "classification":
         predictions, test_df, metadata = train_and_predict_fixed(args, task_spec, config, device)
-        metrics = compute_classification_metrics(test_df[task_spec.label_column].to_numpy(dtype=np.int32), predictions)
+        metrics = compute_classification_metrics(test_df["label"].to_numpy(dtype=np.int32), predictions)
         prediction_frame = build_prediction_frame(
             task_id=args.task,
             model_family=model_family,
@@ -320,15 +324,15 @@ def main() -> int:
             seed=args.seed,
             split_id="test",
             sample_ids=test_df[task_spec.sample_id_column],
-            input_values=test_df[task_spec.input_column],
-            true_targets=test_df[task_spec.label_column],
+            input_values=test_df["smiles"],
+            true_targets=test_df["label"],
             predictions=predictions,
             prediction_type="probability",
             threshold=0.5,
         )
     else:
         predictions, test_df, metadata = train_and_predict_regression_cv(args, task_spec, config, device)
-        metrics = compute_regression_metrics(test_df[task_spec.label_column].to_numpy(dtype=np.float32), predictions)
+        metrics = compute_regression_metrics(test_df["value"].to_numpy(dtype=np.float32), predictions)
         prediction_frame = build_prediction_frame(
             task_id=args.task,
             model_family=model_family,
@@ -336,8 +340,8 @@ def main() -> int:
             seed=args.seed,
             split_id="cv_test",
             sample_ids=test_df[task_spec.sample_id_column],
-            input_values=test_df[task_spec.input_column],
-            true_targets=test_df[task_spec.label_column],
+            input_values=test_df["smiles"],
+            true_targets=test_df["value"],
             predictions=predictions,
             prediction_type="regression",
             threshold=None,
@@ -367,36 +371,6 @@ def main() -> int:
         },
     )
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Placeholder CLI for the ChemBERTa-77M-MTR baseline.")
-    parser.add_argument("--task", required=True)
-    parser.add_argument("--model_name", required=True)
-    parser.add_argument("--seed", type=int, required=True)
-    parser.add_argument("--output_dir", type=Path, required=True)
-    parser.add_argument("--dry_run", action="store_true")
-    return parser.parse_args()
-
-
-def main() -> int:
-    args = parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "task": args.task,
-        "model_name": args.model_name,
-        "seed": args.seed,
-        "status": "placeholder",
-    }
-    (args.output_dir / "adapter_plan.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    print(json.dumps(payload, sort_keys=True))
-    if args.dry_run:
-        return 0
-    raise SystemExit("ChemBERTa baseline execution is not implemented yet; use --dry_run for queue validation.")
 
 
 if __name__ == "__main__":

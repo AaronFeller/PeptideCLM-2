@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -178,11 +179,7 @@ def load_task_frames(task_id: str, seed: int, prepared_data_root: Path | None = 
 
     if task_id == "pepmsnd":
         base = prepared_root / "pepmsnd"
-        outputs = {}
-        for fold_index in range(1, 11):
-            outputs[f"train_{fold_index}"] = pd.read_csv(base / f"X_train{fold_index}.csv")
-            outputs[f"test_{fold_index}"] = pd.read_csv(base / f"X_test{fold_index}.csv")
-        return outputs
+        return {"full": pd.read_csv(base / "pepmsnd_external.csv")}
 
     raise ValueError(f"Task {task_id} is not supported by these baseline adapters.")
 
@@ -247,7 +244,12 @@ def compute_classification_metrics(y_true: np.ndarray, y_score: np.ndarray, thre
 
 def compute_regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
     rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-    spearman = spearmanr(y_true, y_pred)
+    
+    # Catch Constant Prediction Variance Warnings safely
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="An input array is constant")
+        spearman = spearmanr(y_true, y_pred)
+        
     return {
         "r2": r2_score(y_true, y_pred),
         "rmse": rmse,

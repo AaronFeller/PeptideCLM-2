@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model_name", required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--gpu_index", type=int, default=0)
-    parser.add_argument("--output_root", type=Path, default=REPO_ROOT / "tmp" / "runs")
+    parser.add_argument("--output_root", type=Path, default=REPO_ROOT / "tmp" / "runs_LoRA_redo")
     parser.add_argument("--log_root", type=Path, default=REPO_ROOT / "tmp" / "logs")
     parser.add_argument("--prepared_data_root", type=Path, default=REPO_ROOT / "tmp" / "prepared_data")
     parser.add_argument("--fold", type=int, default=None)
@@ -46,7 +46,7 @@ def resolve_command(args: argparse.Namespace, layout) -> list[str]:
                 data_dir = args.prepared_data_root / "thpep" / f"seed_{args.seed}"
             return [
                 "python",
-                "training/classification_finetuning.py",
+                "training/classification_finetuning_v2.py",
                 "--dataset",
                 TASK_TO_DATASET[args.task],
                 "--gpu",
@@ -100,6 +100,8 @@ def resolve_command(args: argparse.Namespace, layout) -> list[str]:
             str(layout.run_dir),
             "--seed",
             str(args.seed),
+            "--gpu_index",
+            str(args.gpu_index)
         ]
 
     if args.model_family == "pepmsnd_species_env":
@@ -119,6 +121,8 @@ def resolve_command(args: argparse.Namespace, layout) -> list[str]:
             str(layout.run_dir),
             "--seed",
             str(args.seed),
+            "--gpu_index",
+            str(args.gpu_index)
         ]
 
     if args.model_family == "xgboost_rdkit":

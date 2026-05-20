@@ -8,7 +8,7 @@ if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold, train_test_split
+from sklearn.model_selection import train_test_split
 
 from training.experiment.manifest import REPO_ROOT
 
@@ -73,17 +73,15 @@ def prepare_pepmsnd(seed: int, output_root: Path) -> list[Path]:
     ensure_dir(output_dir)
 
     df = pd.read_csv(source)
-    outputs: list[Path] = []
     unique_clusters = sorted(df["cluster"].dropna().unique().tolist())
-    for fold_index, cluster_id in enumerate(unique_clusters, start=1):
-        test_idx = df.index[df["cluster"] == cluster_id].to_numpy()
-        train_idx = df.index[df["cluster"] != cluster_id].to_numpy()
-        train_path = output_dir / f"X_train{fold_index}.csv"
-        test_path = output_dir / f"X_test{fold_index}.csv"
-        df.iloc[train_idx].to_csv(train_path, index=False)
-        df.iloc[test_idx].to_csv(test_path, index=False)
-        outputs.extend([train_path, test_path])
-    return outputs
+    
+    # Map unique cluster identifiers to 0-indexed fold integers
+    cluster_to_fold = {cluster_id: fold for fold, cluster_id in enumerate(unique_clusters)}
+    df["fold"] = df["cluster"].map(cluster_to_fold)
+
+    export_path = output_dir / "pepmsnd_external.csv"
+    df.to_csv(export_path, index=False)
+    return [export_path]
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,7 +104,7 @@ def parse_args() -> argparse.Namespace:
         default=REPO_ROOT / "tmp" / "prepared_data",
         help="Root directory for prepared task data.",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print the output paths without writing files.")
+    parser.add_argument("--dry_run", action="store_true", help="Print the output paths without writing files.")
     return parser.parse_args()
 
 

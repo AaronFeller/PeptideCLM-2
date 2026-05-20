@@ -77,27 +77,26 @@ def fit_regression_model(train_x: np.ndarray, train_y: np.ndarray, val_x: np.nda
 
 
 def run_fixed_classification(args: argparse.Namespace, model_family: str, model_variant: str) -> tuple[np.ndarray, dict, dict]:
-    task = get_task_spec(args.task)
     frames = load_task_frames(args.task, seed=args.seed, prepared_data_root=args.prepared_data_root)
     train_df = frames["train"]
     test_df = frames["test"]
 
     if "val" in frames:
         val_df = frames["val"]
-        train_x = feature_matrix(args.feature_set, train_df[task.input_column].tolist())
-        train_y = train_df[task.label_column].to_numpy(dtype=np.int32)
-        val_x = feature_matrix(args.feature_set, val_df[task.input_column].tolist())
-        val_y = val_df[task.label_column].to_numpy(dtype=np.int32)
-        test_x = feature_matrix(args.feature_set, test_df[task.input_column].tolist())
+        train_x = feature_matrix(args.feature_set, train_df["smiles"].tolist())
+        train_y = train_df["label"].to_numpy(dtype=np.int32)
+        val_x = feature_matrix(args.feature_set, val_df["smiles"].tolist())
+        val_y = val_df["label"].to_numpy(dtype=np.int32)
+        test_x = feature_matrix(args.feature_set, test_df["smiles"].tolist())
         model = fit_classification_with_val(train_x, train_y, val_x, val_y, args.seed)
         test_pred = model.predict_proba(test_x)[:, 1]
         metadata = {"strategy": "fixed_train_val_test", "fold_count": 1}
         return test_pred, {"test": test_df}, metadata
 
     splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=args.seed)
-    train_x = feature_matrix(args.feature_set, train_df[task.input_column].tolist())
-    train_y = train_df[task.label_column].to_numpy(dtype=np.int32)
-    test_x = feature_matrix(args.feature_set, test_df[task.input_column].tolist())
+    train_x = feature_matrix(args.feature_set, train_df["smiles"].tolist())
+    train_y = train_df["label"].to_numpy(dtype=np.int32)
+    test_x = feature_matrix(args.feature_set, test_df["smiles"].tolist())
     fold_predictions = []
     for fold_index, (fit_idx, val_idx) in enumerate(splitter.split(train_x, train_y), start=1):
         model = fit_classification_with_val(train_x[fit_idx], train_y[fit_idx], train_x[val_idx], train_y[val_idx], args.seed + fold_index)
@@ -108,7 +107,6 @@ def run_fixed_classification(args: argparse.Namespace, model_family: str, model_
 
 
 def run_regression_cv(args: argparse.Namespace, model_family: str, model_variant: str) -> tuple[np.ndarray, dict, dict]:
-    task = get_task_spec(args.task)
     full_df = load_task_frames(args.task, seed=args.seed, prepared_data_root=args.prepared_data_root)["full"]
     full_df = full_df.copy().sort_values("fold").reset_index(drop=True)
     predictions = np.zeros(len(full_df), dtype=np.float32)
@@ -124,11 +122,11 @@ def run_regression_cv(args: argparse.Namespace, model_family: str, model_variant
         val_df = full_df.loc[val_mask]
         test_df = full_df.loc[test_mask]
 
-        train_x = feature_matrix(args.feature_set, train_df[task.input_column].tolist())
-        val_x = feature_matrix(args.feature_set, val_df[task.input_column].tolist())
-        test_x = feature_matrix(args.feature_set, test_df[task.input_column].tolist())
-        train_y = train_df[task.label_column].to_numpy(dtype=np.float32)
-        val_y = val_df[task.label_column].to_numpy(dtype=np.float32)
+        train_x = feature_matrix(args.feature_set, train_df["smiles"].tolist())
+        val_x = feature_matrix(args.feature_set, val_df["smiles"].tolist())
+        test_x = feature_matrix(args.feature_set, test_df["smiles"].tolist())
+        train_y = train_df["value"].to_numpy(dtype=np.float32)
+        val_y = val_df["value"].to_numpy(dtype=np.float32)
 
         model = fit_regression_model(train_x, train_y, val_x, val_y, args.seed + int(fold_id))
         predictions[test_mask.to_numpy()] = model.predict(test_x)
@@ -158,7 +156,7 @@ def main() -> int:
     if task_spec.task_type == "classification":
         predictions, split_frames, metadata = run_fixed_classification(args, model_family, model_variant)
         test_df = split_frames["test"]
-        metrics = compute_classification_metrics(test_df[task_spec.label_column].to_numpy(dtype=np.int32), predictions)
+        metrics = compute_classification_metrics(test_df["label"].to_numpy(dtype=np.int32), predictions)
         prediction_frame = build_prediction_frame(
             task_id=args.task,
             model_family=model_family,
@@ -166,8 +164,8 @@ def main() -> int:
             seed=args.seed,
             split_id="test",
             sample_ids=test_df[task_spec.sample_id_column],
-            input_values=test_df[task_spec.input_column],
-            true_targets=test_df[task_spec.label_column],
+            input_values=test_df["smiles"],
+            true_targets=test_df["label"],
             predictions=predictions,
             prediction_type="probability",
             threshold=0.5,
@@ -175,7 +173,7 @@ def main() -> int:
     else:
         predictions, split_frames, metadata = run_regression_cv(args, model_family, model_variant)
         test_df = split_frames["test"]
-        metrics = compute_regression_metrics(test_df[task_spec.label_column].to_numpy(dtype=np.float32), predictions)
+        metrics = compute_regression_metrics(test_df["value"].to_numpy(dtype=np.float32), predictions)
         prediction_frame = build_prediction_frame(
             task_id=args.task,
             model_family=model_family,
@@ -183,8 +181,8 @@ def main() -> int:
             seed=args.seed,
             split_id="cv_test",
             sample_ids=test_df[task_spec.sample_id_column],
-            input_values=test_df[task_spec.input_column],
-            true_targets=test_df[task_spec.label_column],
+            input_values=test_df["smiles"],
+            true_targets=test_df["value"],
             predictions=predictions,
             prediction_type="regression",
             threshold=None,

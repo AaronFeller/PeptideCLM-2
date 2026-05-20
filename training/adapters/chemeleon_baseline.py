@@ -98,91 +98,84 @@ def train_and_predict_once(
     input_col: str,
     label_col: str,
 ) -> np.ndarray:
-    chemprop = chemprop_binary()
+    import torch
+    from chemprop import featurizers, nn, models, data
+    from lightning import pytorch as pl
+
     working_dir.mkdir(parents=True, exist_ok=True)
-
-    train_csv = working_dir / "train.csv"
-    val_csv = working_dir / "val.csv"
-    test_csv = working_dir / "test.csv"
-    predict_input_csv = working_dir / "predict_input.csv"
-    predict_output_csv = working_dir / "predict_output.csv"
-    model_dir = working_dir / "chemprop_model"
-
-    export_training_csv(train_df, sample_col, input_col, label_col, train_csv)
-    export_training_csv(val_df, sample_col, input_col, label_col, val_csv)
-    export_training_csv(test_df, sample_col, input_col, label_col, test_csv)
-    export_prediction_csv(test_df, sample_col, input_col, predict_input_csv)
-
-    metrics = ["roc", "f1", "accuracy"] if task_type == "classification" else ["rmse", "r2", "mae"]
-    tracking_metric = "roc" if task_type == "classification" else "rmse"
-
-    train_command = [
-        chemprop,
-        "train",
-        "--data-path",
-        str(train_csv),
-        str(val_csv),
-        str(test_csv),
-        "--output-dir",
-        str(model_dir),
-        "--smiles-columns",
-        "smiles",
-        "--target-columns",
-        "target",
-        "--task-type",
-        task_type,
-        "--metrics",
-        *metrics,
-        "--tracking-metric",
-        tracking_metric,
-        "--epochs",
-        str(epochs),
-        "--patience",
-        str(patience),
-        "--batch-size",
-        str(batch_size),
-        "--num-workers",
-        "0",
-        "--pytorch-seed",
-        str(seed),
-        "--data-seed",
-        str(seed),
-        "--from-foundation",
-        "CheMeleon",
-        "--remove-checkpoints",
-    ]
+    
+    # 1. Manual Foundation Loading
+    ckpt_path = "/novo/users/arvf/peptideclm-2/PeptideCLM-2/checkpoints/chemeleon_mp.pt"
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    
+    mp = nn.BondMessagePassing(**ckpt['hyper_parameters'])
+    mp.load_state_dict(ckpt['state_dict'])
+    
+    # 2. Setup Featurizers and Data
+    featurizer = featurizers.SimpleMoleculeMolGraphFeaturizer()
+    agg = nn.MeanAggregation()
+    
+    # 3. Initialize Head
     if task_type == "classification":
-        train_command.append("--class-balance")
-    if shutil.which("nvidia-smi") is not None:
-        train_command.extend(["--accelerator", "gpu", "--devices", str(gpu_index)])
-    run_command(train_command)
+        # Check if it's binary or multiclass; for your tasks (amp_hgt, cellppd, thpep) it's binary
+        ffn = nn.BinaryClassificationFFN(input_dim=mp.output_dim)
+    else:
+        ffn = nn.RegressionFFN(input_dim=mp.output_dim)
+        
+    mpnn = models.MPNN(mp, agg, ffn, batch_norm=False)
 
-    predict_command = [
-        chemprop,
-        "predict",
-        "--test-path",
-        str(predict_input_csv),
-        "--model-paths",
-        str(model_dir),
-        "--output",
-        str(predict_output_csv),
-        "--smiles-columns",
-        "smiles",
-        "--num-workers",
-        "0",
-        "--batch-size",
-        str(batch_size),
-    ]
-    if shutil.which("nvidia-smi") is not None:
-        predict_command.extend(["--accelerator", "gpu", "--devices", str(gpu_index)])
-    run_command(predict_command)
-    return predict_column(predict_input_csv, predict_output_csv).to_numpy(dtype=np.float32)
+    # 4. Prepare Data with explicit shape handling for classification
+    def to_dset(df):
+        # We need to ensure the target is float and reshaped to (1,) for each point
+        # if it's classification, so the final dataset is (N, 1)
+        points = []
+        for smi, y in zip(df[input_col], df[label_col]):
+            target = float(y)
+            if task_type == "classification":
+                target = [target] # Make it a list/1D tensor-compatible
+            points.append(data.MoleculeDatapoint.from_smi(str(smi), target))
+        return data.MoleculeDataset(points, featurizer)
+
+    train_dset = to_dset(train_df)
+    val_dset = to_dset(val_df)
+    test_dset = to_dset(test_df)
+    
+    # Normalization (only for regression)
+    if task_type == "regression":
+        scaler = train_dset.normalize_targets()
+        val_dset.normalize_targets(scaler)
+    
+    # 5. Train
+    trainer = pl.Trainer(
+        accelerator="gpu", devices=[gpu_index], max_epochs=epochs,
+        enable_progress_bar=False, logger=False
+    )
+    trainer.fit(mpnn, data.build_dataloader(train_dset, batch_size=batch_size, shuffle=True), 
+                      data.build_dataloader(val_dset, batch_size=batch_size, shuffle=False))
+    
+    # 6. Predict and flatten output
+    preds_list = trainer.predict(mpnn, data.build_dataloader(test_dset, batch_size=batch_size, shuffle=False))
+    
+    # Safely convert to a flat numpy array
+    # If preds are tensors, move to cpu first. If they are already numpy, this still works.
+    all_preds = []
+    for p in preds_list:
+        if isinstance(p, torch.Tensor):
+            all_preds.append(p.cpu().numpy())
+        else:
+            all_preds.append(p)
+            
+    return np.concatenate(all_preds).flatten()
 
 
 def classification_predictions(args: argparse.Namespace, task_spec) -> tuple[np.ndarray, pd.DataFrame, dict]:
     frames = load_task_frames(args.task, args.seed, args.prepared_data_root)
     train_df = frames["train"]
     test_df = frames["test"]
+
+    # Overridden columns to match normalization schema
+    input_column = "smiles"
+    label_column = "label"
 
     if "val" in frames:
         predictions = train_and_predict_once(
@@ -197,13 +190,13 @@ def classification_predictions(args: argparse.Namespace, task_spec) -> tuple[np.
             val_df=frames["val"],
             test_df=test_df,
             sample_col=task_spec.sample_id_column,
-            input_col=task_spec.input_column,
-            label_col=task_spec.label_column,
+            input_col=input_column,
+            label_col=label_column,
         )
         return predictions, test_df, {"strategy": "fixed_train_val_test", "fold_count": 1}
 
     splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=args.seed)
-    train_labels = train_df[task_spec.label_column].to_numpy(dtype=np.int32)
+    train_labels = train_df[label_column].to_numpy(dtype=np.int32)
     fold_predictions = []
     for fold_index, (fit_idx, val_idx) in enumerate(splitter.split(train_df, train_labels), start=1):
         fold_predictions.append(
@@ -219,8 +212,8 @@ def classification_predictions(args: argparse.Namespace, task_spec) -> tuple[np.
                 val_df=train_df.iloc[val_idx],
                 test_df=test_df,
                 sample_col=task_spec.sample_id_column,
-                input_col=task_spec.input_column,
-                label_col=task_spec.label_column,
+                input_col=input_column,
+                label_col=label_column,
             )
         )
     predictions = np.mean(np.vstack(fold_predictions), axis=0)
@@ -231,6 +224,11 @@ def regression_predictions(args: argparse.Namespace, task_spec) -> tuple[np.ndar
     full_df = load_task_frames(args.task, args.seed, args.prepared_data_root)["full"].copy().sort_values("fold").reset_index(drop=True)
     fold_ids = sorted(full_df["fold"].unique().tolist())
     predictions = np.zeros(len(full_df), dtype=np.float32)
+
+    # Overridden columns to match normalization schema
+    input_column = "smiles"
+    label_column = "value"
+
     for fold_id in fold_ids:
         test_mask = full_df["fold"] == fold_id
         val_fold = fold_ids[(fold_ids.index(fold_id) - 1) % len(fold_ids)]
@@ -248,8 +246,8 @@ def regression_predictions(args: argparse.Namespace, task_spec) -> tuple[np.ndar
             val_df=full_df.loc[val_mask],
             test_df=full_df.loc[test_mask],
             sample_col=task_spec.sample_id_column,
-            input_col=task_spec.input_column,
-            label_col=task_spec.label_column,
+            input_col=input_column,
+            label_col=label_column,
         )
     return predictions, full_df, {"strategy": "provided_fold_cv", "fold_count": len(fold_ids)}
 
@@ -262,7 +260,7 @@ def main() -> int:
         "model_name": args.model_name,
         "seed": args.seed,
         "status": "ready" if not args.dry_run else "dry_run",
-        "foundation_flag": "--from-foundation CheMeleon",
+        # "foundation_flag": "--from-foundation CheMeleon",
         "release_hint": "v1.0.0",
     }
     (args.output_dir / "adapter_plan.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -276,7 +274,7 @@ def main() -> int:
 
     if task_spec.task_type == "classification":
         predictions, test_df, metadata = classification_predictions(args, task_spec)
-        metrics = compute_classification_metrics(test_df[task_spec.label_column].to_numpy(dtype=np.int32), predictions)
+        metrics = compute_classification_metrics(test_df["label"].to_numpy(dtype=np.int32), predictions)
         prediction_frame = build_prediction_frame(
             task_id=args.task,
             model_family=model_family,
@@ -284,15 +282,15 @@ def main() -> int:
             seed=args.seed,
             split_id="test",
             sample_ids=test_df[task_spec.sample_id_column],
-            input_values=test_df[task_spec.input_column],
-            true_targets=test_df[task_spec.label_column],
+            input_values=test_df["smiles"],
+            true_targets=test_df["label"],
             predictions=predictions,
             prediction_type="probability",
             threshold=0.5,
         )
     else:
         predictions, test_df, metadata = regression_predictions(args, task_spec)
-        metrics = compute_regression_metrics(test_df[task_spec.label_column].to_numpy(dtype=np.float32), predictions)
+        metrics = compute_regression_metrics(test_df["value"].to_numpy(dtype=np.float32), predictions)
         prediction_frame = build_prediction_frame(
             task_id=args.task,
             model_family=model_family,
@@ -300,8 +298,8 @@ def main() -> int:
             seed=args.seed,
             split_id="cv_test",
             sample_ids=test_df[task_spec.sample_id_column],
-            input_values=test_df[task_spec.input_column],
-            true_targets=test_df[task_spec.label_column],
+            input_values=test_df["smiles"],
+            true_targets=test_df["value"],
             predictions=predictions,
             prediction_type="regression",
             threshold=None,
