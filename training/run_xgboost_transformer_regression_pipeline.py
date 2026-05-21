@@ -275,6 +275,19 @@ def build_detailed_prediction_frame(
     return detailed_frame
 
 
+def has_completed_run(run_dir: Path) -> bool:
+    metrics_path = run_dir / "metrics.csv"
+    return metrics_path.exists() and metrics_path.stat().st_size > 0
+
+
+def load_summary_row(run_dir: Path, model_name: str, seed: int) -> dict[str, object]:
+    metrics_frame = pd.read_csv(run_dir / "metrics.csv")
+    summary = {"model_name": model_name, "seed": seed, "run_dir": str(run_dir)}
+    for _, row in metrics_frame.iterrows():
+        summary[str(row["metric_name"])] = float(row["metric_value"])
+    return summary
+
+
 def main() -> int:
     args = parse_args()
     if args.task != "cycpeptmpdb_perm":
@@ -317,6 +330,12 @@ def main() -> int:
             continue
 
         for seed in seeds:
+            run_dir = args.output_root / args.task / "xgboost_transformer" / model_variant / f"seed_{seed}"
+            if has_completed_run(run_dir):
+                summary_rows.append(load_summary_row(run_dir, model_name=model_name, seed=seed))
+                print(f"[skip-seed] transformer model={model_name} seed={seed} found completed output", flush=True)
+                continue
+
             print(f"[seed-start] transformer model={model_name} seed={seed}", flush=True)
             predictions, prediction_std, prediction_columns, fold_count = round_robin_ensemble_predictions(
                 features,
@@ -330,7 +349,6 @@ def main() -> int:
                 predictions,
             )
 
-            run_dir = args.output_root / args.task / "xgboost_transformer" / model_variant / f"seed_{seed}"
             run_dir.mkdir(parents=True, exist_ok=True)
             payload = {
                 "task": args.task,
@@ -399,6 +417,12 @@ def main() -> int:
             continue
 
         for seed in seeds:
+            run_dir = args.output_root / args.task / f"xgboost_{feature_set}" / descriptor_variant / f"seed_{seed}"
+            if has_completed_run(run_dir):
+                summary_rows.append(load_summary_row(run_dir, model_name=feature_set, seed=seed))
+                print(f"[skip-seed] descriptor feature_set={feature_set} seed={seed} found completed output", flush=True)
+                continue
+
             print(f"[seed-start] descriptor feature_set={feature_set} seed={seed}", flush=True)
             predictions, prediction_std, prediction_columns, fold_count = round_robin_ensemble_predictions(
                 features,
@@ -411,7 +435,6 @@ def main() -> int:
                 predictions,
             )
 
-            run_dir = args.output_root / args.task / f"xgboost_{feature_set}" / descriptor_variant / f"seed_{seed}"
             run_dir.mkdir(parents=True, exist_ok=True)
             payload = {
                 "task": args.task,
