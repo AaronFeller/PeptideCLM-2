@@ -54,23 +54,38 @@ DEFAULT_SEEDS = [101, 202, 303]
 DESCRIPTOR_FEATURE_SETS = ["rdkit", "morgan"]
 
 
-def extract_mean_pool(outputs) -> torch.Tensor:
-    if hasattr(outputs, "mean_pool"):
-        return outputs.mean_pool
-    if isinstance(outputs, dict) and "mean_pool" in outputs:
-        return outputs["mean_pool"]
-    if hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
-        return outputs.pooler_output
-    if isinstance(outputs, dict) and "pooler_output" in outputs and outputs["pooler_output"] is not None:
-        return outputs["pooler_output"]
+def masked_mean_pool(last_hidden_state: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
+    if attention_mask is None:
+        return last_hidden_state.mean(dim=1)
+    mask = attention_mask.to(last_hidden_state.dtype).unsqueeze(-1)
+    token_sums = (last_hidden_state * mask).sum(dim=1)
+    token_counts = mask.sum(dim=1).clamp_min(1.0)
+    return token_sums / token_counts
+
+
+def extract_mean_pool(outputs, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
     last_hidden_state = None
     if hasattr(outputs, "last_hidden_state"):
         last_hidden_state = outputs.last_hidden_state
     elif isinstance(outputs, dict) and "last_hidden_state" in outputs:
         last_hidden_state = outputs["last_hidden_state"]
-    if last_hidden_state is None:
-        raise ValueError("Model output does not contain mean_pool or last_hidden_state.")
-    return last_hidden_state.mean(dim=1)
+    if last_hidden_state is not None:
+        return masked_mean_pool(last_hidden_state, attention_mask)
+    if isinstance(outputs, dict):
+        pooler_output = outputs.get("pooler_output")
+        if pooler_output is not None:
+            return pooler_output
+        mean_pool = outputs.get("mean_pool")
+        if mean_pool is not None:
+            return mean_pool
+    else:
+        pooler_output = getattr(outputs, "pooler_output", None)
+        if pooler_output is not None:
+            return pooler_output
+        mean_pool = getattr(outputs, "mean_pool", None)
+        if mean_pool is not None:
+            return mean_pool
+    raise ValueError("Model output does not contain last_hidden_state, pooler_output, or mean_pool.")
 
 
 def forward_backbone(model, input_ids: torch.Tensor, attention_mask: torch.Tensor):
@@ -95,7 +110,9 @@ def compute_embeddings(model, tokenizer, device: torch.device, smiles_list: list
         )
         batch_inputs = {key: value.to(device) for key, value in batch_inputs.items()}
         outputs = forward_backbone(model, input_ids=batch_inputs["input_ids"], attention_mask=batch_inputs["attention_mask"])
-        embeddings.append(extract_mean_pool(outputs).detach().cpu().numpy().astype(np.float32))
+        embeddings.append(
+            extract_mean_pool(outputs, attention_mask=batch_inputs.get("attention_mask")).detach().cpu().numpy().astype(np.float32)
+        )
     return np.vstack(embeddings)
 
 
@@ -140,14 +157,14 @@ def compute_regression_metrics_with_mse(y_true: np.ndarray, y_pred: np.ndarray) 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="An input array is constant")
         spearman = spearmanr(y_true, y_pred)
+    spearman_value = getattr(spearman, "statistic", np.nan)
     return {
         "r2": float(r2_score(y_true, y_pred)),
         "mse": mse,
         "rmse": float(math.sqrt(mse)),
         "mae": float(mean_absolute_error(y_true, y_pred)),
-        "spearman": float(spearman.statistic if np.isfinite(spearman.statistic) else np.nan),
+        "spearman": float(spearman_value if np.isfinite(spearman_value) else np.nan),
     }
-
 
 def fit_regression_model(
     train_x: np.ndarray,
@@ -157,21 +174,75 @@ def fit_regression_model(
     seed: int,
     n_jobs: int,
 ) -> XGBRegressor:
+    embedding_dim = train_x.shape[1]
+
+    # # Dynamically tune hyperparameters based on embedding size
+    # if embedding_dim >= 1024:  # Large scale
+    #     colsample = 0.25
+    #     max_depth = 4
+    #     lr = 0.02
+    # elif embedding_dim >= 768:  # Base scale
+    #     colsample = 0.45
+    #     max_depth = 5
+    #     lr = 0.03
+    # else:  # Small scale (512 or below)
+    #     colsample = 0.75
+    #     max_depth = 6
+    #     lr = 0.05
+    
+    # Use the prior 32M/"small" XGBoost settings for all embedding sizes.
+    # The size-specific retune was too aggressive and made results worse, so
+    # keep one conservative configuration until we have cleaner ablations.
+    colsample = 0.75
+    max_depth = 6
+    lr = 0.05
+
     model = XGBRegressor(
         objective="reg:squarederror",
         eval_metric="rmse",
         random_state=seed,
-        n_estimators=512,
-        max_depth=6,
-        learning_rate=0.05,
-        subsample=0.9,
-        colsample_bytree=0.9,
+        n_estimators=1500,  # Generous cap, let early stopping do the work
+        max_depth=max_depth,
+        learning_rate=lr,
+        subsample=0.85,
+        colsample_bytree=colsample,
         tree_method="hist",
         device="cpu",
         n_jobs=n_jobs,
+        early_stopping_rounds=40,
     )
-    model.fit(train_x, train_y, eval_set=[(val_x, val_y)], verbose=False)
+
+    model.fit(
+        train_x,
+        train_y,
+        eval_set=[(val_x, val_y)],
+        verbose=False,
+    )
     return model
+
+# def fit_regression_model(
+#     train_x: np.ndarray,
+#     train_y: np.ndarray,
+#     val_x: np.ndarray,
+#     val_y: np.ndarray,
+#     seed: int,
+#     n_jobs: int,
+# ) -> XGBRegressor:
+#     model = XGBRegressor(
+#         objective="reg:squarederror",
+#         eval_metric="rmse",
+#         random_state=seed,
+#         n_estimators=512,
+#         max_depth=6,
+#         learning_rate=0.05,
+#         subsample=0.9,
+#         colsample_bytree=0.9,
+#         tree_method="hist",
+#         device="cpu",
+#         n_jobs=n_jobs,
+#     )
+#     model.fit(train_x, train_y, eval_set=[(val_x, val_y)], verbose=False)
+#     return model
 
 
 def parse_args() -> argparse.Namespace:
@@ -237,8 +308,8 @@ def round_robin_ensemble_predictions(
 
             train_x = features[train_mask.to_numpy()]
             val_x = features[val_mask.to_numpy()]
-            train_y = data_frame.loc[train_mask, "value"].to_numpy(dtype=np.float32)
-            val_y = data_frame.loc[val_mask, "value"].to_numpy(dtype=np.float32)
+            train_y = np.asarray(data_frame.loc[train_mask, "value"], dtype=np.float32)
+            val_y = np.asarray(data_frame.loc[val_mask, "value"], dtype=np.float32)
 
             regressor = fit_regression_model(
                 train_x,

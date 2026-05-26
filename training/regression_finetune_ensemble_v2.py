@@ -75,7 +75,39 @@ def seed_everything(seed: int) -> None:
 def resolve_learning_rate(model_name: str, override: float | None) -> float:
     if override is not None:
         return override
-    return 3e-4
+    normalized_name = model_name.lower()
+    if "-small" in normalized_name:
+        return 3e-4
+    if "-large" in normalized_name:
+        return 5e-5
+    return 1e-4
+
+
+def resolve_lora_hparams(
+    model_name: str,
+    rank_override: int | None,
+    alpha_override: int | None,
+) -> tuple[int, int]:
+    normalized_name = model_name.lower()
+    if "-small" in normalized_name:
+        default_rank = 16
+    elif "-large" in normalized_name:
+        default_rank = 64
+    else:
+        default_rank = 32
+
+    rank = int(rank_override) if rank_override is not None else default_rank
+    alpha = int(alpha_override) if alpha_override is not None else 2 * rank
+    return rank, alpha
+
+
+def resolve_model_scale(model_name: str) -> str:
+    normalized_name = model_name.lower()
+    if "-small" in normalized_name:
+        return "small"
+    if "-large" in normalized_name:
+        return "large"
+    return "base"
 
 
 def resolve_pad_token_id(tokenizer) -> int:
@@ -188,22 +220,27 @@ def compute_regression_metrics_with_mse(y_true: np.ndarray, y_pred: np.ndarray) 
     }
 
 
-def rebalance_regression_bins(train_df: pd.DataFrame, seed: int, bins: int = 5) -> pd.DataFrame:
-    if len(train_df) < bins * 2:
-        return train_df.copy().reset_index(drop=True)
-    try:
-        binned = pd.qcut(train_df["value"], q=bins, duplicates="drop")
-    except ValueError:
-        return train_df.copy().reset_index(drop=True)
-    if getattr(binned, "nunique", lambda: 0)() <= 1:
-        return train_df.copy().reset_index(drop=True)
-    grouped = train_df.assign(_bin=binned).groupby("_bin", observed=False)
-    max_size = int(grouped.size().max())
-    balanced = [
-        group.sample(n=max_size, replace=True, random_state=seed)
-        for _, group in grouped
-    ]
-    return pd.concat(balanced, ignore_index=True).drop(columns="_bin")
+def fit_minmax_scaler(values: pd.Series | np.ndarray) -> tuple[float, float]:
+    value_array = np.asarray(values, dtype=np.float32)
+    value_min = float(np.min(value_array))
+    value_max = float(np.max(value_array))
+    return value_min, value_max
+
+
+def transform_targets(values: pd.Series | np.ndarray, value_min: float, value_max: float) -> np.ndarray:
+    value_array = np.asarray(values, dtype=np.float32)
+    scale = value_max - value_min
+    if scale <= 1e-8:
+        return np.zeros_like(value_array, dtype=np.float32)
+    return ((value_array - value_min) / scale).astype(np.float32)
+
+
+def inverse_transform_targets(values: np.ndarray, value_min: float, value_max: float) -> np.ndarray:
+    value_array = np.asarray(values, dtype=np.float32)
+    scale = value_max - value_min
+    if scale <= 1e-8:
+        return np.full_like(value_array, fill_value=value_min, dtype=np.float32)
+    return (value_array * scale + value_min).astype(np.float32)
 
 
 class MoleculeRegressionDataset(Dataset):
@@ -278,7 +315,7 @@ class LoRARegressionModel(pl.LightningModule):
             nn.Dropout(head_dropout),
             nn.Linear(embed_dim, 1),
         )
-        self.criterion = nn.SmoothL1Loss()
+        self.criterion = nn.MSELoss()
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         outputs = forward_backbone(self.model, input_ids=input_ids, attention_mask=attention_mask)
@@ -294,12 +331,11 @@ class LoRARegressionModel(pl.LightningModule):
 
     def validation_step(self, batch: dict[str, torch.Tensor], _batch_idx: int) -> torch.Tensor:
         predictions = self(batch["input_ids"], batch["attention_mask"])
-        smooth_l1 = self.criterion(predictions, batch["labels"])
-        mse = nn.functional.mse_loss(predictions, batch["labels"])
+        mse = self.criterion(predictions, batch["labels"])
         rmse = torch.sqrt(mse + 1e-12)
-        self.log("val_loss", smooth_l1, prog_bar=False, on_step=False, on_epoch=True)
+        self.log("val_loss", mse, prog_bar=False, on_step=False, on_epoch=True)
         self.log("val_rmse", rmse, prog_bar=True, on_step=False, on_epoch=True)
-        return smooth_l1
+        return mse
 
     def predict_step(self, batch: dict[str, torch.Tensor], _batch_idx: int) -> torch.Tensor:
         return self(batch["input_ids"], batch["attention_mask"])
@@ -319,8 +355,8 @@ class LoRARegressionModel(pl.LightningModule):
 
 
 def build_trainer(log_dir: Path, run_name: str, gpu_index: int, max_epochs: int, patience: int):
-    checkpoint_callback = ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1, filename="best")
-    early_stopping_callback = EarlyStopping(monitor="val_loss", mode="min", patience=patience)
+    checkpoint_callback = ModelCheckpoint(monitor="val_rmse", mode="min", save_top_k=1, filename="best")
+    early_stopping_callback = EarlyStopping(monitor="val_rmse", mode="min", patience=patience)
     accelerator = "gpu" if torch.cuda.is_available() else "cpu"
     devices = [int(gpu_index)] if accelerator == "gpu" else 1
     precision = "bf16-mixed" if accelerator == "gpu" else "32-true"
@@ -332,6 +368,7 @@ def build_trainer(log_dir: Path, run_name: str, gpu_index: int, max_epochs: int,
         callbacks=[checkpoint_callback, early_stopping_callback],
         logger=CSVLogger(str(log_dir), name=run_name),
         log_every_n_steps=10,
+        val_check_interval=0.5,
         enable_progress_bar=False,
         deterministic=True,
         gradient_clip_val=0.1,
@@ -361,8 +398,17 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
     log_dir.mkdir(parents=True, exist_ok=True)
 
     fold_results = []
+    model_scale = resolve_model_scale(model_name)
     learning_rate = resolve_learning_rate(model_name, args.learning_rate)
+    lora_rank, lora_alpha = resolve_lora_hparams(model_name, args.lora_rank, args.lora_alpha)
     fold_ids = sorted(data_frame["fold"].unique().tolist())
+    print(
+        f"[config] model={model_name} scale={model_scale} seed={seed} "
+        f"target_scaling={args.target_scaling} lr={learning_rate:.2e} "
+        f"lora_rank={lora_rank} lora_alpha={lora_alpha} "
+        f"lora_dropout={args.lora_dropout:.2f} head_dropout={args.head_dropout:.2f}",
+        flush=True,
+    )
 
     for test_fold in fold_ids:
         test_df = data_frame.loc[data_frame["fold"] == test_fold].copy().reset_index(drop=True)
@@ -371,11 +417,28 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
         for val_fold in sorted(ensemble_df["fold"].unique().tolist()):
             train_df = ensemble_df.loc[ensemble_df["fold"] != val_fold].copy().reset_index(drop=True)
             val_df = ensemble_df.loc[ensemble_df["fold"] == val_fold].copy().reset_index(drop=True)
-            train_df = rebalance_regression_bins(train_df, seed=seed + int(test_fold) + int(val_fold))
 
-            train_ds = MoleculeRegressionDataset(train_df["SMILES"], train_df["value"], tokenizer, max_length=args.max_length)
-            val_ds = MoleculeRegressionDataset(val_df["SMILES"], val_df["value"], tokenizer, max_length=args.max_length)
-            test_ds = MoleculeRegressionDataset(test_df["SMILES"], test_df["value"], tokenizer, max_length=args.max_length)
+            if args.target_scaling == "minmax":
+                value_min, value_max = fit_minmax_scaler(train_df["value"])
+                train_targets = transform_targets(train_df["value"], value_min, value_max)
+                val_targets = transform_targets(val_df["value"], value_min, value_max)
+                test_targets = transform_targets(test_df["value"], value_min, value_max)
+            else:
+                value_min, value_max = 0.0, 1.0
+                train_targets = train_df["value"].to_numpy(dtype=np.float32)
+                val_targets = val_df["value"].to_numpy(dtype=np.float32)
+                test_targets = test_df["value"].to_numpy(dtype=np.float32)
+
+            print(
+                f"[fold] test_fold={test_fold} val_fold={val_fold} "
+                f"train_n={len(train_df)} val_n={len(val_df)} test_n={len(test_df)} "
+                f"value_min={value_min:.4f} value_max={value_max:.4f}",
+                flush=True,
+            )
+
+            train_ds = MoleculeRegressionDataset(train_df["SMILES"], train_targets, tokenizer, max_length=args.max_length)
+            val_ds = MoleculeRegressionDataset(val_df["SMILES"], val_targets, tokenizer, max_length=args.max_length)
+            test_ds = MoleculeRegressionDataset(test_df["SMILES"], test_targets, tokenizer, max_length=args.max_length)
 
             train_loader = DataLoader(
                 train_ds,
@@ -407,8 +470,8 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
                 model_name=model_name,
                 learning_rate=learning_rate,
                 total_steps=total_steps,
-                lora_rank=args.lora_rank,
-                lora_alpha=args.lora_alpha,
+                lora_rank=lora_rank,
+                lora_alpha=lora_alpha,
                 lora_dropout=args.lora_dropout,
                 head_dropout=args.head_dropout,
                 weight_decay=args.weight_decay,
@@ -424,7 +487,10 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
             )
             trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
             prediction_batches = trainer.predict(model, dataloaders=test_loader, ckpt_path=checkpoint_callback.best_model_path)
-            test_df.loc[:, f"prediction_{val_fold}"] = predict_from_batches(prediction_batches)
+            fold_predictions = predict_from_batches(prediction_batches)
+            if args.target_scaling == "minmax":
+                fold_predictions = inverse_transform_targets(fold_predictions, value_min, value_max)
+            test_df.loc[:, f"prediction_{val_fold}"] = fold_predictions
 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -466,13 +532,17 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
     payload = {
         "task": "cycpeptmpdb_perm",
         "model_name": model_name,
+        "model_scale": model_scale,
         "seed": seed,
         "learning_rate": learning_rate,
         "fold_count": len(fold_ids),
         "status": "ready",
-        "lora_rank": args.lora_rank,
-        "lora_alpha": args.lora_alpha,
+        "lora_rank": lora_rank,
+        "lora_alpha": lora_alpha,
         "lora_dropout": args.lora_dropout,
+        "head_dropout": args.head_dropout,
+        "weight_decay": args.weight_decay,
+        "target_scaling": args.target_scaling,
     }
     (run_dir / "adapter_plan.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     write_baseline_outputs(
@@ -503,13 +573,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--learning_rate", type=float, default=None)
     parser.add_argument("--weight_decay", type=float, default=0.01)
-    parser.add_argument("--lora_rank", type=int, default=16)
-    parser.add_argument("--lora_alpha", type=int, default=32)
-    parser.add_argument("--lora_dropout", type=float, default=0.1)
-    parser.add_argument("--head_dropout", type=float, default=0.1)
+    parser.add_argument("--lora_rank", type=int, default=None)
+    parser.add_argument("--lora_alpha", type=int, default=None)
+    parser.add_argument("--lora_dropout", type=float, default=0.05)
+    parser.add_argument("--head_dropout", type=float, default=0.05)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--target_scaling", choices=("minmax", "none"), default="minmax")
+    parser.add_argument("--force", action="store_true", help="Rerun requested seeds even if output metrics already exist.")
     return parser.parse_args()
+
+
+def update_summary_frame(summary_path: Path, new_rows: list[dict[str, object]]) -> pd.DataFrame:
+    new_frame = pd.DataFrame(new_rows)
+    if summary_path.exists() and summary_path.stat().st_size > 0:
+        existing_frame = pd.read_csv(summary_path)
+    else:
+        existing_frame = pd.DataFrame()
+
+    if existing_frame.empty:
+        return new_frame
+    if new_frame.empty:
+        return existing_frame
+
+    combined = pd.concat([existing_frame, new_frame], ignore_index=True)
+    combined = combined.drop_duplicates(subset=["model_name", "seed"], keep="last")
+    return combined.sort_values(["model_name", "seed"]).reset_index(drop=True)
 
 
 def resolve_models(args: argparse.Namespace) -> list[str]:
@@ -539,16 +628,11 @@ def resolve_seeds(args: argparse.Namespace) -> list[int]:
     return list(DEFAULT_SEEDS)
 
 
-def has_completed_model_run(output_root: Path, model_name: str) -> bool:
+def has_completed_seed_run(output_root: Path, model_name: str, seed: int) -> bool:
     model_variant = model_name.split("/")[-1].replace(".", "_")
-    model_root = output_root / "cycpeptmpdb_perm" / "peptideclm_lora_v2" / model_variant
-    if not model_root.exists():
-        return False
-    for seed_dir in sorted(model_root.glob("seed_*")):
-        metrics_path = seed_dir / "metrics.csv"
-        if metrics_path.exists() and metrics_path.stat().st_size > 0:
-            return True
-    return False
+    seed_dir = output_root / "cycpeptmpdb_perm" / "peptideclm_lora_v2" / model_variant / f"seed_{seed}"
+    metrics_path = seed_dir / "metrics.csv"
+    return metrics_path.exists() and metrics_path.stat().st_size > 0
 
 
 def main() -> int:
@@ -562,10 +646,10 @@ def main() -> int:
 
     summary_rows = []
     for model_name in models:
-        if has_completed_model_run(args.output_root, model_name):
-            print(f"[skip-model] found completed output for model={model_name}; skipping all requested seeds", flush=True)
-            continue
         for seed in seeds:
+            if not args.force and has_completed_seed_run(args.output_root, model_name, seed):
+                print(f"[skip-seed] found completed output for model={model_name} seed={seed}; skipping", flush=True)
+                continue
             result = run_single_experiment(args, model_name=model_name, seed=seed, data_frame=data_frame)
             metric_frame = result["metrics"]
             summary = {"model_name": model_name, "seed": seed, "run_dir": str(result["run_dir"])}
@@ -573,10 +657,11 @@ def main() -> int:
                 summary[row["metric_name"]] = row["metric_value"]
             summary_rows.append(summary)
 
-    summary_frame = pd.DataFrame(summary_rows)
     summary_root = args.output_root / "cycpeptmpdb_perm" / "peptideclm_lora_v2"
     summary_root.mkdir(parents=True, exist_ok=True)
-    summary_frame.to_csv(summary_root / "summary_metrics.csv", index=False)
+    summary_path = summary_root / "summary_metrics.csv"
+    summary_frame = update_summary_frame(summary_path, summary_rows)
+    summary_frame.to_csv(summary_path, index=False)
     return 0
 
 
