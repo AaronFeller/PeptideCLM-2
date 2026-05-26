@@ -14,6 +14,7 @@ if __package__ in {None, ""}:
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
+from sklearn.decomposition import PCA
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import tokenizers
 import torch
@@ -52,6 +53,7 @@ DEFAULT_MODELS = [
 ]
 DEFAULT_SEEDS = [101, 202, 303]
 DESCRIPTOR_FEATURE_SETS = ["rdkit", "morgan"]
+PCA_MODES = ("off", "auto", "all")
 
 
 def masked_mean_pool(last_hidden_state: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
@@ -166,6 +168,44 @@ def compute_regression_metrics_with_mse(y_true: np.ndarray, y_pred: np.ndarray) 
         "spearman": float(spearman_value if np.isfinite(spearman_value) else np.nan),
     }
 
+
+def resolve_pca_components(feature_dim: int, train_count: int, requested_components: int) -> int:
+    max_components = min(feature_dim, max(1, train_count - 1))
+    return min(requested_components, max_components)
+
+
+def maybe_apply_fold_pca(
+    train_x: np.ndarray,
+    val_x: np.ndarray,
+    test_x: np.ndarray,
+    pca_mode: str,
+    pca_components: int,
+    pca_auto_threshold: int,
+    context_label: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int | None]:
+    if pca_mode == "off":
+        return train_x, val_x, test_x, None
+
+    feature_dim = train_x.shape[1]
+    if pca_mode == "auto" and feature_dim <= pca_auto_threshold:
+        return train_x, val_x, test_x, None
+
+    effective_components = resolve_pca_components(feature_dim, train_x.shape[0], pca_components)
+    if effective_components >= feature_dim:
+        return train_x, val_x, test_x, None
+
+    pca = PCA(n_components=effective_components, svd_solver="randomized", random_state=0)
+    train_reduced = pca.fit_transform(train_x).astype(np.float32)
+    val_reduced = pca.transform(val_x).astype(np.float32)
+    test_reduced = pca.transform(test_x).astype(np.float32)
+    explained_variance = float(np.sum(pca.explained_variance_ratio_))
+    print(
+        f"[fold-pca] {context_label} dim={feature_dim}->{effective_components} explained_variance={explained_variance:.4f}",
+        flush=True,
+    )
+    return train_reduced, val_reduced, test_reduced, effective_components
+
+
 def fit_regression_model(
     train_x: np.ndarray,
     train_y: np.ndarray,
@@ -189,7 +229,7 @@ def fit_regression_model(
     #     colsample = 0.75
     #     max_depth = 6
     #     lr = 0.05
-    
+
     # Use the prior 32M/"small" XGBoost settings for all embedding sizes.
     # The size-specific retune was too aggressive and made results worse, so
     # keep one conservative configuration until we have cleaner ablations.
@@ -261,6 +301,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--n_jobs", type=int, default=-1)
+    parser.add_argument("--pca_mode", choices=PCA_MODES, default="auto")
+    parser.add_argument("--pca_components", type=int, default=256)
+    parser.add_argument("--pca_auto_threshold", type=int, default=256)
     return parser.parse_args()
 
 
@@ -287,10 +330,15 @@ def round_robin_ensemble_predictions(
     data_frame: pd.DataFrame,
     seed: int,
     n_jobs: int,
-) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray], int]:
+    pca_mode: str = "off",
+    pca_components: int = 256,
+    pca_auto_threshold: int = 256,
+    model_label: str = "features",
+) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray], int, list[int]]:
     fold_ids = sorted(data_frame["fold"].unique().tolist())
     predictions = np.zeros(len(data_frame), dtype=np.float32)
     prediction_std = np.zeros(len(data_frame), dtype=np.float32)
+    applied_pca_components: list[int] = []
     prediction_columns = {
         f"prediction_{val_fold}": np.full(len(data_frame), np.nan, dtype=np.float32)
         for val_fold in fold_ids
@@ -299,7 +347,7 @@ def round_robin_ensemble_predictions(
     for fold_id in fold_ids:
         test_mask = data_frame["fold"] == fold_id
         ensemble_df = data_frame.loc[~test_mask].copy().reset_index(drop=True)
-        test_x = features[test_mask.to_numpy()]
+        test_x_full = features[test_mask.to_numpy()]
         fold_predictions = []
 
         for val_fold in sorted(ensemble_df["fold"].unique().tolist()):
@@ -310,6 +358,19 @@ def round_robin_ensemble_predictions(
             val_x = features[val_mask.to_numpy()]
             train_y = np.asarray(data_frame.loc[train_mask, "value"], dtype=np.float32)
             val_y = np.asarray(data_frame.loc[val_mask, "value"], dtype=np.float32)
+            test_x = test_x_full
+
+            train_x, val_x, test_x, fold_pca_components = maybe_apply_fold_pca(
+                train_x=train_x,
+                val_x=val_x,
+                test_x=test_x,
+                pca_mode=pca_mode,
+                pca_components=pca_components,
+                pca_auto_threshold=pca_auto_threshold,
+                context_label=f"model={model_label} test_fold={fold_id} val_fold={val_fold}",
+            )
+            if fold_pca_components is not None:
+                applied_pca_components.append(fold_pca_components)
 
             regressor = fit_regression_model(
                 train_x,
@@ -327,7 +388,7 @@ def round_robin_ensemble_predictions(
         predictions[test_mask.to_numpy()] = stacked.mean(axis=0)
         prediction_std[test_mask.to_numpy()] = stacked.std(axis=0)
 
-    return predictions, prediction_std, prediction_columns, len(fold_ids)
+    return predictions, prediction_std, prediction_columns, len(fold_ids), applied_pca_components
 
 
 def build_detailed_prediction_frame(
@@ -373,7 +434,7 @@ def main() -> int:
     effective_n_jobs = os.cpu_count() if args.n_jobs == -1 else args.n_jobs
 
     print(
-        f"[run-start] task={args.task} device={device} transformer_models={len(models)} descriptor_sets={len(DESCRIPTOR_FEATURE_SETS)} seeds={seeds} xgboost_n_jobs={effective_n_jobs}",
+        f"[run-start] task={args.task} device={device} transformer_models={len(models)} descriptor_sets={len(DESCRIPTOR_FEATURE_SETS)} seeds={seeds} xgboost_n_jobs={effective_n_jobs} pca_mode={args.pca_mode} pca_components={args.pca_components} pca_auto_threshold={args.pca_auto_threshold}",
         flush=True,
     )
 
@@ -408,11 +469,15 @@ def main() -> int:
                 continue
 
             print(f"[seed-start] transformer model={model_name} seed={seed}", flush=True)
-            predictions, prediction_std, prediction_columns, fold_count = round_robin_ensemble_predictions(
+            predictions, prediction_std, prediction_columns, fold_count, applied_pca_components = round_robin_ensemble_predictions(
                 features,
                 data_frame,
                 seed,
                 n_jobs=args.n_jobs,
+                pca_mode=args.pca_mode,
+                pca_components=args.pca_components,
+                pca_auto_threshold=args.pca_auto_threshold,
+                model_label=model_variant,
             )
 
             metrics = compute_regression_metrics_with_mse(
@@ -429,6 +494,10 @@ def main() -> int:
                 "feature_source": "transformer_embedding",
                 "strategy": "provided_fold_round_robin_ensemble",
                 "fold_count": fold_count,
+                "pca_mode": args.pca_mode,
+                "pca_requested_components": args.pca_components,
+                "pca_auto_threshold": args.pca_auto_threshold,
+                "pca_applied_components": sorted(set(applied_pca_components)),
             }
             (run_dir / "adapter_plan.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -495,7 +564,7 @@ def main() -> int:
                 continue
 
             print(f"[seed-start] descriptor feature_set={feature_set} seed={seed}", flush=True)
-            predictions, prediction_std, prediction_columns, fold_count = round_robin_ensemble_predictions(
+            predictions, prediction_std, prediction_columns, fold_count, _ = round_robin_ensemble_predictions(
                 features,
                 data_frame,
                 seed,

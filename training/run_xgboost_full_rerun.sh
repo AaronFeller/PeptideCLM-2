@@ -8,7 +8,7 @@ PYTHON_BIN=${PYTHON_BIN:-.venv311/bin/python}
 RUN_STAMP=${RUN_STAMP:-$(date +%Y%m%d_%H%M%S)}
 OUTPUT_ROOT=${OUTPUT_ROOT:-tmp/xgboost_full_rerun_${RUN_STAMP}}
 CACHE_ROOT=${CACHE_ROOT:-tmp/embeddings_regression}
-N_JOBS=${N_JOBS:-16}
+N_JOBS=${N_JOBS:-64}
 
 "$PYTHON_BIN" training/prepare_benchmark_data.py --task cycpeptmpdb_perm --seed 0
 

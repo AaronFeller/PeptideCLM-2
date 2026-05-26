@@ -93,10 +93,6 @@ log "LAUNCH_LOG_DIR=$LAUNCH_LOG_DIR"
 log "GPU assignment: MLM=$MLM_GPU_INDEX MTR=$MTR_GPU_INDEX HYBRID=$HYBRID_GPU_INDEX"
 log "Backbone launch mode=parallel total concurrent training jobs=15 (5 per GPU)"
 
-log "Preparing benchmark data"
-"$PYTHON_BIN" training/prepare_benchmark_data.py --task cycpeptmpdb_perm --seed 0
-log "Prepared benchmark data"
-
 check_cuda_runtime "$MLM_GPU_INDEX" "MLM base"
 check_cuda_runtime "$MTR_GPU_INDEX" "MTR base"
 check_cuda_runtime "$HYBRID_GPU_INDEX" "Hybrid base"
@@ -106,10 +102,11 @@ COMMON_ARGS=(
     --output_root "$OUTPUT_ROOT"
     --log_root "$TRAIN_LOG_ROOT"
     --max_steps 2500
-    --patience 3
-    --learning_rate 1e-5
-    --head_dropout 0.10
-    --weight_decay 1e-4
+    --patience 2
+    --learning_rate 5e-6
+    --head_dropout 0.20
+    --weight_decay 1e-3
+    --warmup_fraction 0.20
     --target_scaling none
     --parallel_val_folds 5
     --force

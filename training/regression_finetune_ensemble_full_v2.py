@@ -80,7 +80,7 @@ def resolve_learning_rate(model_name: str, override: float | None) -> float:
     if "-small" in normalized_name:
         return 1e-5
     if "-base" in normalized_name:
-        return 1e-5
+        return 5e-6
     if "-large" in normalized_name:
         return 5e-6
     return 1e-5
@@ -91,7 +91,7 @@ def resolve_weight_decay(model_name: str, override: float | None) -> float:
         return float(override)
     normalized_name = model_name.lower()
     if "-base" in normalized_name:
-        return 1e-4
+        return 1e-3
     return 1e-3
 
 
@@ -100,8 +100,17 @@ def resolve_head_dropout(model_name: str, override: float | None) -> float:
         return float(override)
     normalized_name = model_name.lower()
     if "-base" in normalized_name:
-        return 0.10
+        return 0.20
     return 0.15
+
+
+def resolve_warmup_fraction(model_name: str, override: float | None) -> float:
+    if override is not None:
+        return float(override)
+    normalized_name = model_name.lower()
+    if "-base" in normalized_name:
+        return 0.20
+    return 0.10
 
 
 def resolve_model_scale(model_name: str) -> str:
@@ -309,6 +318,7 @@ class FullFinetuneRegressionModel(pl.LightningModule):
         total_steps: int,
         head_dropout: float,
         weight_decay: float,
+        warmup_fraction: float,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -354,7 +364,7 @@ class FullFinetuneRegressionModel(pl.LightningModule):
         )
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=max(1, int(0.1 * self.hparams.total_steps)),
+            num_warmup_steps=max(1, int(self.hparams.warmup_fraction * self.hparams.total_steps)),
             num_training_steps=max(1, self.hparams.total_steps),
         )
         return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
@@ -443,6 +453,7 @@ def run_single_fold_job(
     learning_rate = resolve_learning_rate(model_name, args.learning_rate)
     weight_decay = resolve_weight_decay(model_name, args.weight_decay)
     head_dropout = resolve_head_dropout(model_name, args.head_dropout)
+    warmup_fraction = resolve_warmup_fraction(model_name, args.warmup_fraction)
     batch_size = resolve_batch_size(model_name, args.batch_size)
     eval_batch_size = resolve_eval_batch_size(model_name, args.eval_batch_size)
     accumulate_grad_batches = resolve_accumulate_grad_batches(model_name, args.accumulate_grad_batches)
@@ -451,7 +462,8 @@ def run_single_fold_job(
         f"target_scaling={args.target_scaling} lr={learning_rate:.2e} "
         f"batch_size={batch_size} eval_batch_size={eval_batch_size} "
         f"accumulate_grad_batches={accumulate_grad_batches} "
-        f"head_dropout={head_dropout:.2f} weight_decay={weight_decay:.4f}",
+        f"head_dropout={head_dropout:.2f} weight_decay={weight_decay:.4f} "
+        f"warmup_fraction={warmup_fraction:.2f}",
         flush=True,
     )
 
@@ -519,6 +531,7 @@ def run_single_fold_job(
         total_steps=total_steps,
         head_dropout=head_dropout,
         weight_decay=weight_decay,
+        warmup_fraction=warmup_fraction,
     )
     trainable_params, total_params = count_trainable_parameters(model)
     print(
@@ -755,6 +768,7 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
     learning_rate = resolve_learning_rate(model_name, args.learning_rate)
     weight_decay = resolve_weight_decay(model_name, args.weight_decay)
     head_dropout = resolve_head_dropout(model_name, args.head_dropout)
+    warmup_fraction = resolve_warmup_fraction(model_name, args.warmup_fraction)
     batch_size = resolve_batch_size(model_name, args.batch_size)
     eval_batch_size = resolve_eval_batch_size(model_name, args.eval_batch_size)
     accumulate_grad_batches = resolve_accumulate_grad_batches(model_name, args.accumulate_grad_batches)
@@ -842,6 +856,7 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
         "status": "ready",
         "head_dropout": head_dropout,
         "weight_decay": weight_decay,
+        "warmup_fraction": warmup_fraction,
         "target_scaling": args.target_scaling,
         "parallel_val_folds": int(args.parallel_val_folds),
     }
@@ -877,6 +892,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning_rate", type=float, default=None)
     parser.add_argument("--weight_decay", type=float, default=None)
     parser.add_argument("--head_dropout", type=float, default=None)
+    parser.add_argument("--warmup_fraction", type=float, default=None)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--target_scaling", choices=("minmax", "none"), default="none")
