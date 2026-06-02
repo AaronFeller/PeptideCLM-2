@@ -20,26 +20,15 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 META_DROP_FOR_DESC = ["ID", "PMID", "SMILES", "label", "Length", "SE-3", "Species", "Environment"]
 
 
-def infer_model_scale(model_name: str) -> str | None:
-    name = model_name.lower()
-    if name.endswith("_sm") or name.endswith("-small") or "small" in name:
-        return "small"
-    if name.endswith("_base") or name.endswith("-base") or "base" in name:
-        return "base"
-    if name.endswith("_lg") or name.endswith("-large") or "large" in name:
-        return "large"
-    return None
-
-
 def get_model_specific_lrs(model_name: str) -> Tuple[float, float]:
-    scale = infer_model_scale(model_name)
-    if scale == "small":
+    name = model_name.lower()
+    if name.endswith("_sm") or "peptidemlm_sm" in name:
         # ~40M params: keep prior setting.
         return 1e-5, 1e-3
-    if scale == "base":
+    if name.endswith("_base") or "peptidemlm_base" in name:
         # ~120M params: scale up from previous conservative settings.
         return 8e-6, 8e-4
-    if scale == "large":
+    if name.endswith("_lg") or "peptidemlm_lg" in name:
         # ~340M params: scale up too, but keep slightly below base for stability.
         return 7e-6, 7e-4
     # Fallback for unexpected model names.
@@ -47,12 +36,12 @@ def get_model_specific_lrs(model_name: str) -> Tuple[float, float]:
 
 
 def get_model_specific_freeze_epochs(model_name: str) -> int:
-    scale = infer_model_scale(model_name)
-    if scale == "small":
+    name = model_name.lower()
+    if name.endswith("_sm") or "peptidemlm_sm" in name:
         return 3
-    if scale == "base":
+    if name.endswith("_base") or "peptidemlm_base" in name:
         return 5
-    if scale == "large":
+    if name.endswith("_lg") or "peptidemlm_lg" in name:
         # Let the large backbone adapt sooner.
         return 2
     return 3
@@ -202,7 +191,7 @@ class PaperStyleKANBranch(nn.Module):
         return x
 
 
-class PeptideCLM2BackbonePlusPaperKAN(pl.LightningModule):
+class PeptideCLMBackbonePlusPaperKAN(pl.LightningModule):
     def __init__(
         self,
         model_name: str,
@@ -382,7 +371,7 @@ def run_inference(model, data_loader, device) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train PeptideCLM-2 backbone + paper-style KAN fusion on PepMSND.")
+    parser = argparse.ArgumentParser(description="Train Aaron backbone + paper-style KAN fusion on PepMSND.")
     parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument("--fold", type=int, required=True, choices=list(range(1, 11)))
     parser.add_argument("--data_dir", type=str, default="main/data/PepMSND_data")
@@ -395,7 +384,7 @@ def parse_args():
     parser.add_argument("--patience", type=int, default=20)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--append_meta_to_kan", action="store_true")
     parser.add_argument("--monitor_metric", type=str, default="val_mcc_best", choices=["val_mcc_best", "val_loss"])
     parser.add_argument("--clip_quantile", type=float, default=0.999)
@@ -473,7 +462,7 @@ def main():
         pin_memory=True,
     )
 
-    model = PeptideCLM2BackbonePlusPaperKAN(
+    model = PeptideCLMBackbonePlusPaperKAN(
         model_name=args.model_name,
         kan_input_dim=feat.kan_train.shape[1],
         backbone_learning_rate=args.backbone_learning_rate,
@@ -508,7 +497,7 @@ def main():
 
     ckpt_path = checkpoint_callback.best_model_path
     if ckpt_path:
-        model = PeptideCLM2BackbonePlusPaperKAN.load_from_checkpoint(ckpt_path)
+        model = PeptideCLMBackbonePlusPaperKAN.load_from_checkpoint(ckpt_path)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)

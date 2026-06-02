@@ -43,15 +43,14 @@ def ensure_tensor(data):
 
 def load_model(vocab_size, model_size):
     # Check for valid model size
-    if model_size not in ["Small", "Medium", "Large", "Huge"]:
-        raise ValueError(f"Invalid model size: {model_size}. Choose from 'Small', 'Medium', 'Large', or 'Huge'.")
+    if model_size not in ["Small", "Base", "Large"]:
+        raise ValueError(f"Invalid model size: {model_size}. Choose from 'Small', 'Base', 'Large'.")
 
     # Define model configurations
     model_configs = {
         "Small": {"ffn_hidden_dim": 768, "embed_dim": 512, "num_heads": 8, "num_blocks": 14}, #31.65M
-        "Medium": {"ffn_hidden_dim": 1024, "embed_dim": 768, "num_heads": 12, "num_blocks": 24}, #113.96M
+        "Base": {"ffn_hidden_dim": 1024, "embed_dim": 768, "num_heads": 12, "num_blocks": 24}, #113.96M
         "Large": {"ffn_hidden_dim": 2048, "embed_dim": 1024, "num_heads": 16, "num_blocks": 32}, #336.54M
-        "Huge": {"ffn_hidden_dim": 2048, "embed_dim": 1280, "num_heads": 20, "num_blocks": 36}, #520.32M
     }
 
     # Common parameters for all model sizes
@@ -303,19 +302,16 @@ def main(args=None):
     
     # Load tokenizer
     if args.tokenizer == 'kmer':
-        tokenizer = AutoTokenizer.from_pretrained("aaronfeller/peptideclm-2-hybrid-small", trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained("aaronfeller/PeptideMTR")
     elif args.tokenizer == 'atomistic':
         tokenizer = AutoTokenizer.from_pretrained("novonordisk-red/PubChemBERT-large")
 
     tokenizer.model_max_length = 2048
     
-    if args.model_size == "Huge":
-        training_strategy = 'fsdp'  # Use more minibatches for Huge models
-        minibatches = 1
-    elif args.model_size == "Large":
+    if args.model_size == "Large":
         training_strategy = 'ddp'
         minibatches = 4
-    elif args.model_size == "Medium":
+    elif args.model_size == "Base":
         training_strategy = 'ddp'
         minibatches = 2
     elif args.model_size == "Small":
@@ -353,7 +349,7 @@ def main(args=None):
     
     # Setup logging and callbacks
     wandb_logger = WandbLogger(
-        project="PeptideCLM-2",
+        project="PeptideMTR",
         name=run_name,
         log_model=True,
         save_dir="checkpoints/"
@@ -402,8 +398,8 @@ def main(args=None):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Train a PeptideCLM-2 pretraining model with specified configurations.")
-    parser.add_argument('--model_size', type=str, choices=['Small', 'Medium', 'Large', 'Huge'], default='Small', help="Size of the model to train.")
+    parser = argparse.ArgumentParser(description="Train MTR model with specified configurations.")
+    parser.add_argument('--model_size', type=str, choices=['Small', 'Base', 'Large'], default='Small', help="Size of the model to train.")
     parser.add_argument('--total_steps', type=int, default=100_000, help="Total number of training steps.")
     parser.add_argument('--learning_rate', type=float, default=3e-4, help="Learning rate for the optimizer.")
     parser.add_argument('--batch_size', type=int, default=64, help="Batch size for training.")
@@ -413,7 +409,7 @@ if __name__ == "__main__":
     parser.add_argument('--warmup_steps', type=int, default=5000, help="Number of warmup steps for the learning rate scheduler.")
     parser.add_argument('--weight_decay', type=float, default=0, help="Weight decay for the optimizer.")
     parser.add_argument('--dataset_option', type=int, choices=[1, 2, 3], default=2, help="Choose dataset option: 1 for pubchem, 2 for pubchem+ESMAtlas, 3 for ESMAtlas.")
-    parser.add_argument('--tokenizer', type=str, choices=['kmer', 'atomistic'], default='kmer', help="Tokenizer family to use for the model.")
+    parser.add_argument('--tokenizer', type=str, default='aaronfeller/PeptideMTR', help="Tokenizer to use for the model.")
     parser.add_argument('--masking_percentage', type=float, default=0.15, help="Percentage of tokens to mask during training.")
     parser.add_argument('--span', action='store_true', help="Use span masking instead of random masking.")
     parser.add_argument('--save_name', type=str, default='MTR_training', help="Name for saving the model checkpoints.")

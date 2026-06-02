@@ -25,7 +25,7 @@ This work was developed as a collaboration between **Novo Nordisk** and the **Wi
 - [License](#license)
 
 ## Introduction
-PeptideCLM-2 is a transformer-based representation learning suite for therapeutic peptides. The project investigates how explicit physicochemical information (99 RDKit descriptors) used during training can enhance the predictive power of peptide models.
+PeptideCLM-2 is a transformer-based representation learning suite for therapeutic peptides. The project investigates how explicit physicochemical information (99 RDKit descriptors) used during training impacts predictive power of SMILES-based peptide models.
 
 The framework benchmarks three distinct architectural approaches:
 1. **MLM (masked language modeling):** Purely sequence-based learning via amino acid tokens.

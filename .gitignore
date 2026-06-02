@@ -40,3 +40,4 @@ updating_hf.ipynb
 *.tar.gz
 tmp/
 old_work/
+training_old/

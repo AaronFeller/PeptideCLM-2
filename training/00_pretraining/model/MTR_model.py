@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchtune.modules import RotaryPositionalEmbeddings
 import lightning as pl
-from typing import Optional
 
 '''
 MTR_model: Defines the Multi-Task Regression Transformer (MTR) model architecture
@@ -22,92 +22,6 @@ class SwiGLU(nn.Module):
         x1, x2 = self.linear1(x).chunk(2, dim=-1)
         output = self.linear2(F.silu(x1) * x2)
         return self.dropout(output)
-
-
-class RotaryPositionalEmbeddings(nn.Module):
-    """
-    This class implements Rotary Positional Embeddings (RoPE)
-    proposed in https://arxiv.org/abs/2104.09864.
-
-    Reference implementation (used for correctness verification)
-    can be found in the Meta Llama codebase.
-
-    In this implementation we cache the embeddings for each position up to
-    ``max_seq_len`` during initialization.
-    """
-
-    def __init__(
-        self,
-        dim: int,
-        max_seq_len: int = 4096,
-        base: int = 10_000,
-    ) -> None:
-        super().__init__()
-        self.dim = dim
-        self.base = base
-        self.max_seq_len = max_seq_len
-        self.rope_init()
-
-    def rope_init(self):
-        theta = self._compute_theta(device=torch.device("cpu"))
-        self.register_buffer("theta", theta, persistent=False)
-        self.build_rope_cache(self.max_seq_len)
-
-    def _compute_theta(self, device: torch.device) -> torch.Tensor:
-        exponents = torch.arange(0, self.dim, 2, dtype=torch.float32, device=device)
-        exponents = exponents[: (self.dim // 2)] / float(self.dim)
-        base = torch.tensor(float(self.base), dtype=torch.float32, device=device)
-        return torch.pow(base, -exponents)
-
-    def _theta_is_valid(self) -> bool:
-        if not hasattr(self, "theta"):
-            return False
-        theta = self.theta
-        if not torch.isfinite(theta).all():
-            return False
-        if not ((theta > 0.0).all() and (theta <= 1.0).all()):
-            return False
-        return True
-
-    def build_rope_cache(self, max_seq_len: int = 4096) -> None:
-        if not self._theta_is_valid():
-            self.theta = self._compute_theta(device=torch.device("cpu"))
-
-        seq_idx = torch.arange(max_seq_len, dtype=self.theta.dtype, device=self.theta.device)
-        idx_theta = torch.einsum("i, j -> ij", seq_idx, self.theta).float()
-        cache = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)], dim=-1)
-        self.register_buffer("cache", cache, persistent=False)
-
-    def forward(self, x: torch.Tensor, *, input_pos: Optional[torch.Tensor] = None) -> torch.Tensor:
-        seq_len = x.size(1)
-
-        if (
-            (not self._theta_is_valid())
-            or (not hasattr(self, "cache"))
-            or (not torch.isfinite(self.cache).all())
-            or (self.cache.size(0) < seq_len)
-            or (self.theta.device != x.device)
-        ):
-            theta = self._compute_theta(device=x.device)
-            self.theta = theta
-            self.build_rope_cache(max(self.max_seq_len, seq_len))
-
-        rope_cache = self.cache[:seq_len] if input_pos is None else self.cache[input_pos]
-
-        # Cast to float to match the reference implementation.
-        xshaped = x.float().reshape(*x.shape[:-1], -1, 2)
-        rope_cache = rope_cache.view(-1, xshaped.size(1), 1, xshaped.size(3), 2)
-
-        x_out = torch.stack(
-            [
-                xshaped[..., 0] * rope_cache[..., 0] - xshaped[..., 1] * rope_cache[..., 1],
-                xshaped[..., 1] * rope_cache[..., 0] + xshaped[..., 0] * rope_cache[..., 1],
-            ],
-            -1,
-        )
-
-        x_out = x_out.flatten(3)
-        return x_out.type_as(x)
 
 
 class MultiHeadAttention(nn.Module):

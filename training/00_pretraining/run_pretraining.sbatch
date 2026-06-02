@@ -16,18 +16,18 @@ source .venv/bin/activate
 
 # dataset options: 1:PubChem+LMSD+ESMAtlas, 2:PubChem+LMSD, 3:ESMAtlas
 # --span for span masking, otherwise random masking will be used
-# --tokenizer atomistic for atomistic tokenizer, otherwise the PeptideCLM-2 tokenizer will be used
+# --tokenizer atomistic for atomistic tokenizer, otherwise PeptideMTR tokenizer will be used
 # --model_size Small, Medium, Large
 # --alpha and --beta are the weights for the loss function, default is 0.6 (MLM) and 0.4 (MTR)
 # --warmup_steps is the number of warmup steps
 # --weight_decay is the weight decay for the optimizer, default is 0.01
 
-srun python training_MTR_v3.py \
+srun python pretraining.py \
+    --model_size Large \
     --total_steps 100000 \
     --learning_rate 3e-4 \
     --batch_size 64 \
     --num_workers 8 \
-    --model_size Large \
     --alpha 0.6 \
     --beta 0.4 \
     --warmup_steps 5000 \
