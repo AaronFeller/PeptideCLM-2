@@ -1,1 +1,1 @@
-Data can be found at https://github.com/AaronFeller/PeptideCLM/blob/master/clustered_data/all_clusters.csv
+Data can be found at https://github.com/AaronFeller/PeptideCLM/blob/master/clustered_data/all_clusters.csv or at PAMPA_clusters.csv in this directory.

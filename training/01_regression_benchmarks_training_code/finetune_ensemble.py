@@ -1,18 +1,16 @@
 import pandas as pd
 import os
 import itertools
-# import numpy as np
 
 from datasets import Dataset
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-# from torch.nn.functional import huber_loss
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from transformers import AutoTokenizer
-from model.MTR_model import MTR_model
+from models.MTR_model import MTR_model
 from transformers import AutoTokenizer
 
 torch.set_float32_matmul_precision('high')

@@ -10,8 +10,8 @@ import sys
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from training.experiment.manifest import REPO_ROOT, load_manifest
-from training.experiment.output_schema import build_run_layout
+from experiment.manifest import REPO_ROOT, load_manifest
+from experiment.output_schema import build_run_layout
 
 
 TASK_TO_DATASET = {
@@ -66,82 +66,24 @@ def resolve_command(args: argparse.Namespace, layout) -> list[str]:
                 "--seed",
                 str(args.seed),
             ]
-        if args.task == "cycpeptmpdb_perm":
-            prepared_csv = args.prepared_data_root / "cycpeptmpdb_perm" / "perm_external.csv"
-            return [
-                "python",
-                "training/regression_finetune_ensemble.py",
-                "--data_csv",
-                str(prepared_csv),
-                "--model",
-                args.model_name,
-                "--save_dir",
-                str(layout.run_dir),
-                "--save_name",
-                "predictions",
-                "--seed",
-                str(args.seed),
-            ]
-
-    if args.model_family == "pepmsnd_kan":
-        if args.fold is None:
-            raise ValueError("--fold is required for pepmsnd_kan runs.")
-        data_dir = args.prepared_data_root / "pepmsnd"
-        return [
-            "python",
-            "training/PepMSND_analysis/train_pepmsnd_kan_paperstyle.py",
-            "--model_name",
-            args.model_name,
-            "--fold",
-            str(args.fold),
-            "--data_dir",
-            str(data_dir),
-            "--save_path",
-            str(layout.run_dir),
-            "--seed",
-            str(args.seed),
-            "--gpu_index",
-            str(args.gpu_index)
-        ]
-
-    if args.model_family == "pepmsnd_species_env":
-        if args.fold is None:
-            raise ValueError("--fold is required for pepmsnd_species_env runs.")
-        data_dir = args.prepared_data_root / "pepmsnd"
-        return [
-            "python",
-            "training/PepMSND_analysis/train_pepmsnd_species_env.py",
-            "--model_name",
-            args.model_name,
-            "--fold",
-            str(args.fold),
-            "--data_dir",
-            str(data_dir),
-            "--save_path",
-            str(layout.run_dir),
-            "--seed",
-            str(args.seed),
-            "--gpu_index",
-            str(args.gpu_index)
-        ]
 
     if args.model_family == "xgboost_rdkit":
-        command = ["python", "training/adapters/xgboost_baseline.py", "--feature_set", "rdkit", "--task", args.task, "--seed", str(args.seed), "--output_dir", str(layout.run_dir), "--prepared_data_root", str(args.prepared_data_root)]
+        command = ["python", "adapters/xgboost_baseline.py", "--feature_set", "rdkit", "--task", args.task, "--seed", str(args.seed), "--output_dir", str(layout.run_dir), "--prepared_data_root", str(args.prepared_data_root)]
         if args.dry_run or not args.execute:
             command.append("--dry_run")
         return command
     if args.model_family == "xgboost_morgan":
-        command = ["python", "training/adapters/xgboost_baseline.py", "--feature_set", "morgan", "--task", args.task, "--seed", str(args.seed), "--output_dir", str(layout.run_dir), "--prepared_data_root", str(args.prepared_data_root)]
+        command = ["python", "adapters/xgboost_baseline.py", "--feature_set", "morgan", "--task", args.task, "--seed", str(args.seed), "--output_dir", str(layout.run_dir), "--prepared_data_root", str(args.prepared_data_root)]
         if args.dry_run or not args.execute:
             command.append("--dry_run")
         return command
     if args.model_family == "chemberta77m":
-        command = ["python", "training/adapters/chemberta_baseline.py", "--task", args.task, "--model_name", args.model_name, "--seed", str(args.seed), "--gpu_index", str(args.gpu_index), "--output_dir", str(layout.run_dir), "--prepared_data_root", str(args.prepared_data_root)]
+        command = ["python", "adapters/chemberta_baseline.py", "--task", args.task, "--model_name", args.model_name, "--seed", str(args.seed), "--gpu_index", str(args.gpu_index), "--output_dir", str(layout.run_dir), "--prepared_data_root", str(args.prepared_data_root)]
         if args.dry_run or not args.execute:
             command.append("--dry_run")
         return command
     if args.model_family == "chemeleon":
-        command = ["python", "training/adapters/chemeleon_baseline.py", "--task", args.task, "--model_name", args.model_name, "--seed", str(args.seed), "--gpu_index", str(args.gpu_index), "--output_dir", str(layout.run_dir), "--prepared_data_root", str(args.prepared_data_root)]
+        command = ["python", "adapters/chemeleon_baseline.py", "--task", args.task, "--model_name", args.model_name, "--seed", str(args.seed), "--gpu_index", str(args.gpu_index), "--output_dir", str(layout.run_dir), "--prepared_data_root", str(args.prepared_data_root)]
         if args.dry_run or not args.execute:
             command.append("--dry_run")
         return command
