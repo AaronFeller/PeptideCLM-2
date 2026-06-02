@@ -5,6 +5,7 @@ tmp/
 env/
 manuscript/
 test_*/
+lightning_logs/
 
 
 .prototype/
@@ -35,3 +36,7 @@ share/python-wheels/
 MANIFEST
 fig5*.csv
 updating_hf.ipynb
+
+*.tar.gz
+tmp/
+old_work/

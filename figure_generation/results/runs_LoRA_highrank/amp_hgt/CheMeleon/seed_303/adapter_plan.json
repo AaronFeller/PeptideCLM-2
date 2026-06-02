@@ -1,0 +1,7 @@
+{
+  "task": "amp_hgt",
+  "model_name": "CheMeleon",
+  "seed": 303,
+  "status": "ready",
+  "release_hint": "v1.0.0"
+}

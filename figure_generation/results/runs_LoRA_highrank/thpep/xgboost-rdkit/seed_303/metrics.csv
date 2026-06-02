@@ -1,0 +1,7 @@
+task_id,model_family,model_variant,seed,split_id,metric_name,metric_value,metric_role
+thpep,xgboost_rdkit,xgboost-rdkit,303,test,mcc,0.6299649598415872,primary
+thpep,xgboost_rdkit,xgboost-rdkit,303,test,f1,0.7397260273972602,primary
+thpep,xgboost_rdkit,xgboost-rdkit,303,test,accuracy,0.8442622950819673,secondary
+thpep,xgboost_rdkit,xgboost-rdkit,303,test,precision,0.7105263157894737,secondary
+thpep,xgboost_rdkit,xgboost-rdkit,303,test,recall,0.7714285714285715,secondary
+thpep,xgboost_rdkit,xgboost-rdkit,303,test,auroc,0.9136288998357964,primary

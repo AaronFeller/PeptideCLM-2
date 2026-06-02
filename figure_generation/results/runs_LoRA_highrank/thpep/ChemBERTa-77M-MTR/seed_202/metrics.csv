@@ -1,0 +1,7 @@
+task_id,model_family,model_variant,seed,split_id,metric_name,metric_value,metric_role
+thpep,chemberta77m,ChemBERTa-77M-MTR,202,test,mcc,0.7151182620515381,primary
+thpep,chemberta77m,ChemBERTa-77M-MTR,202,test,f1,0.8,primary
+thpep,chemberta77m,ChemBERTa-77M-MTR,202,test,accuracy,0.8770491803278688,secondary
+thpep,chemberta77m,ChemBERTa-77M-MTR,202,test,precision,0.75,secondary
+thpep,chemberta77m,ChemBERTa-77M-MTR,202,test,recall,0.8571428571428571,secondary
+thpep,chemberta77m,ChemBERTa-77M-MTR,202,test,auroc,0.9356321839080459,primary

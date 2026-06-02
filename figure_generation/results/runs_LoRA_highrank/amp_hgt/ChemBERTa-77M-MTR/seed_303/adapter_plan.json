@@ -1,0 +1,6 @@
+{
+  "task": "amp_hgt",
+  "model_name": "DeepChem/ChemBERTa-77M-MTR",
+  "seed": 303,
+  "status": "ready"
+}

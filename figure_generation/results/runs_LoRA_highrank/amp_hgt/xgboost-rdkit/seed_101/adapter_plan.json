@@ -1,0 +1,6 @@
+{
+  "task": "amp_hgt",
+  "feature_set": "rdkit",
+  "seed": 101,
+  "status": "ready"
+}

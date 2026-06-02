@@ -1,0 +1,7 @@
+task_id,model_family,model_variant,seed,split_id,metric_name,metric_value,metric_role
+cellppd,xgboost_morgan,xgboost-morgan,202,test,mcc,0.8890604741769945,primary
+cellppd,xgboost_morgan,xgboost-morgan,202,test,f1,0.9411764705882353,primary
+cellppd,xgboost_morgan,xgboost-morgan,202,test,accuracy,0.9433333333333334,secondary
+cellppd,xgboost_morgan,xgboost-morgan,202,test,precision,0.9784172661870504,secondary
+cellppd,xgboost_morgan,xgboost-morgan,202,test,recall,0.9066666666666666,secondary
+cellppd,xgboost_morgan,xgboost-morgan,202,test,auroc,0.9919111111111111,primary

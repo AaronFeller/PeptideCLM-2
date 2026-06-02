@@ -1,0 +1,7 @@
+task_id,model_family,model_variant,seed,split_id,metric_name,metric_value,metric_role
+cellppd,chemeleon,CheMeleon,202,test,mcc,0.9009816035771265,primary
+cellppd,chemeleon,CheMeleon,202,test,f1,0.9488054607508533,primary
+cellppd,chemeleon,CheMeleon,202,test,accuracy,0.95,secondary
+cellppd,chemeleon,CheMeleon,202,test,precision,0.972027972027972,secondary
+cellppd,chemeleon,CheMeleon,202,test,recall,0.9266666666666666,secondary
+cellppd,chemeleon,CheMeleon,202,test,auroc,0.9829777777777777,primary

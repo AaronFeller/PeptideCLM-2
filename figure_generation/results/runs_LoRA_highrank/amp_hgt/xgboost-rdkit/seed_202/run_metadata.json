@@ -1,0 +1,22 @@
+{
+  "task": "amp_hgt",
+  "model_family": "xgboost_rdkit",
+  "model_name": "xgboost-rdkit",
+  "seed": 202,
+  "gpu_index": 4,
+  "fold": null,
+  "command": [
+    "python",
+    "training/adapters/xgboost_baseline.py",
+    "--feature_set",
+    "rdkit",
+    "--task",
+    "amp_hgt",
+    "--seed",
+    "202",
+    "--output_dir",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/runs3/amp_hgt/xgboost_rdkit/xgboost-rdkit/seed_202",
+    "--prepared_data_root",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/prepared_data"
+  ]
+}

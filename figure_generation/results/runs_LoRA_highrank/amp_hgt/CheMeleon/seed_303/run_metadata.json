@@ -1,0 +1,24 @@
+{
+  "task": "amp_hgt",
+  "model_family": "chemeleon",
+  "model_name": "CheMeleon",
+  "seed": 303,
+  "gpu_index": 6,
+  "fold": null,
+  "command": [
+    "python",
+    "training/adapters/chemeleon_baseline.py",
+    "--task",
+    "amp_hgt",
+    "--model_name",
+    "CheMeleon",
+    "--seed",
+    "303",
+    "--gpu_index",
+    "6",
+    "--output_dir",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/runs3/amp_hgt/chemeleon/CheMeleon/seed_303",
+    "--prepared_data_root",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/prepared_data"
+  ]
+}

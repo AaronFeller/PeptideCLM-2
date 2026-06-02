@@ -1,0 +1,22 @@
+{
+  "task": "thpep",
+  "model_family": "xgboost_rdkit",
+  "model_name": "xgboost-rdkit",
+  "seed": 101,
+  "gpu_index": 6,
+  "fold": null,
+  "command": [
+    "python",
+    "training/adapters/xgboost_baseline.py",
+    "--feature_set",
+    "rdkit",
+    "--task",
+    "thpep",
+    "--seed",
+    "101",
+    "--output_dir",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/runs3/thpep/xgboost_rdkit/xgboost-rdkit/seed_101",
+    "--prepared_data_root",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/prepared_data"
+  ]
+}

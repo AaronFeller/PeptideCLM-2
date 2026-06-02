@@ -1,0 +1,8 @@
+{
+  "task": "thpep",
+  "feature_set": "rdkit",
+  "seed": 303,
+  "status": "ready",
+  "strategy": "fixed_train_val_test",
+  "fold_count": 1
+}

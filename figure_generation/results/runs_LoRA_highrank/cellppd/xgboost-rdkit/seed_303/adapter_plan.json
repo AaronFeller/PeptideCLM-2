@@ -1,0 +1,6 @@
+{
+  "task": "cellppd",
+  "feature_set": "rdkit",
+  "seed": 303,
+  "status": "ready"
+}

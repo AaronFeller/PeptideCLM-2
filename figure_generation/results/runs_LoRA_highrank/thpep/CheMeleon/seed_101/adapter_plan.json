@@ -1,0 +1,7 @@
+{
+  "task": "thpep",
+  "model_name": "CheMeleon",
+  "seed": 101,
+  "status": "ready",
+  "release_hint": "v1.0.0"
+}

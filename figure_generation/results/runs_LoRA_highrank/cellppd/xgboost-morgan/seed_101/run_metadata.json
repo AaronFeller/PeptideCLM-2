@@ -1,0 +1,22 @@
+{
+  "task": "cellppd",
+  "model_family": "xgboost_morgan",
+  "model_name": "xgboost-morgan",
+  "seed": 101,
+  "gpu_index": 1,
+  "fold": null,
+  "command": [
+    "python",
+    "training/adapters/xgboost_baseline.py",
+    "--feature_set",
+    "morgan",
+    "--task",
+    "cellppd",
+    "--seed",
+    "101",
+    "--output_dir",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/runs3/cellppd/xgboost_morgan/xgboost-morgan/seed_101",
+    "--prepared_data_root",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/prepared_data"
+  ]
+}

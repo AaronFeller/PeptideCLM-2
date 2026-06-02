@@ -1,0 +1,12 @@
+{
+  "task": "thpep",
+  "model_name": "CheMeleon",
+  "seed": 101,
+  "status": "ready",
+  "release_hint": "v1.0.0",
+  "strategy": "fixed_train_val_test",
+  "fold_count": 1,
+  "batch_size": 32,
+  "epochs": 30,
+  "patience": 8
+}

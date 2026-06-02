@@ -9,10 +9,16 @@ import os
 import random
 from pathlib import Path
 import sys
+import time
 import warnings
 
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+print(
+    f"[startup] module-import-begin pid={os.getpid()} argv={' '.join(sys.argv)} cwd={os.getcwd()}",
+    flush=True,
+)
 
 import lightning as pl
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
@@ -35,6 +41,9 @@ from training.adapters.common import (
     write_baseline_outputs,
 )
 from training.experiment.manifest import REPO_ROOT
+
+
+print(f"[startup] imports-ready pid={os.getpid()}", flush=True)
 
 
 torch.serialization.add_safe_globals([
@@ -62,6 +71,13 @@ DEFAULT_MODELS = [
 ]
 MODEL_TYPES = ("mlm", "mtr", "hybrid")
 DEFAULT_SEEDS = [101, 202, 303]
+
+
+def normalize_config_name(config_name: str | None) -> str | None:
+    if config_name is None:
+        return None
+    normalized = str(config_name).strip()
+    return normalized or None
 
 
 def seed_everything(seed: int) -> None:
@@ -418,6 +434,28 @@ def resolve_fold_seed(seed: int, test_fold: int, val_fold: int) -> int:
     return int(seed) * 1000 + int(test_fold) * 100 + int(val_fold)
 
 
+def build_run_dir(output_root: Path, model_name: str, seed: int, config_name: str | None) -> Path:
+    model_variant = model_name.split("/")[-1].replace(".", "_")
+    run_dir = output_root / "cycpeptmpdb_perm" / "peptideclm_fullft_v2" / model_variant
+    if config_name is not None:
+        run_dir = run_dir / f"config_{config_name}"
+    return run_dir / f"seed_{seed}"
+
+
+def resolve_test_folds(data_frame: pd.DataFrame, requested_folds: list[int] | None) -> list[int]:
+    available_folds = sorted(data_frame["fold"].unique().tolist())
+    if not requested_folds:
+        return available_folds
+
+    normalized_folds = sorted({int(fold_id) for fold_id in requested_folds})
+    missing_folds = [fold_id for fold_id in normalized_folds if fold_id not in available_folds]
+    if missing_folds:
+        raise ValueError(
+            f"Requested test_folds {missing_folds} are not available in the input data; available folds={available_folds}"
+        )
+    return normalized_folds
+
+
 def run_single_fold_job(
     args: argparse.Namespace,
     model_name: str,
@@ -442,9 +480,8 @@ def run_single_fold_job(
     pad_token_id = resolve_pad_token_id(tokenizer)
     collate_fn = make_collate_fn(pad_token_id)
 
-    model_variant = model_name.split("/")[-1].replace(".", "_")
-    run_dir = args.output_root / "cycpeptmpdb_perm" / "peptideclm_fullft_v2" / model_variant / f"seed_{seed}"
-    log_dir = args.log_root / "cycpeptmpdb_perm" / "peptideclm_fullft_v2" / model_variant / f"seed_{seed}"
+    run_dir = build_run_dir(args.output_root, model_name, seed, args.config_name)
+    log_dir = build_run_dir(args.log_root, model_name, seed, args.config_name)
     run_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -676,7 +713,7 @@ def run_parallel_val_fold_workers(
         batch_val_folds = val_folds[batch_start:batch_start + max_parallel]
         result_queue = mp_context.Queue()
         processes: list[tuple[int, Path, Path, mp.Process]] = []
-        for val_fold in batch_val_folds:
+        for launch_index, val_fold in enumerate(batch_val_folds):
             output_path = artifact_root / f"val_fold_{val_fold}.csv"
             worker_log_path = worker_log_root / f"val_fold_{val_fold}.log"
             if output_path.exists():
@@ -694,6 +731,15 @@ def run_parallel_val_fold_workers(
             )
             process.start()
             processes.append((val_fold, output_path, worker_log_path, process))
+            startup_delay_seconds = max(0.0, float(args.parallel_startup_delay_seconds))
+            has_more_launches = launch_index < len(batch_val_folds) - 1
+            if startup_delay_seconds > 0.0 and has_more_launches:
+                print(
+                    f"[parallel-stagger] sleeping {startup_delay_seconds:.1f}s before next launch "
+                    f"for model={model_name} seed={seed} test_fold={test_fold}",
+                    flush=True,
+                )
+                time.sleep(startup_delay_seconds)
 
         try:
             process_by_fold = {val_fold: process for val_fold, _, _, process in processes}
@@ -758,8 +804,8 @@ def run_fold_worker(args: argparse.Namespace, model_name: str, seed: int, data_f
 
 def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, data_frame: pd.DataFrame) -> dict[str, Path | pd.DataFrame]:
     model_variant = model_name.split("/")[-1].replace(".", "_")
-    run_dir = args.output_root / "cycpeptmpdb_perm" / "peptideclm_fullft_v2" / model_variant / f"seed_{seed}"
-    log_dir = args.log_root / "cycpeptmpdb_perm" / "peptideclm_fullft_v2" / model_variant / f"seed_{seed}"
+    run_dir = build_run_dir(args.output_root, model_name, seed, args.config_name)
+    log_dir = build_run_dir(args.log_root, model_name, seed, args.config_name)
     run_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -772,9 +818,10 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
     batch_size = resolve_batch_size(model_name, args.batch_size)
     eval_batch_size = resolve_eval_batch_size(model_name, args.eval_batch_size)
     accumulate_grad_batches = resolve_accumulate_grad_batches(model_name, args.accumulate_grad_batches)
-    fold_ids = sorted(data_frame["fold"].unique().tolist())
+    fold_ids = resolve_test_folds(data_frame, args.test_folds)
     print(
-        f"[ensemble] model={model_name} seed={seed} holdout_folds={len(fold_ids)} parallel_val_folds={args.parallel_val_folds}",
+        f"[ensemble] model={model_name} seed={seed} config_name={args.config_name or 'default'} "
+        f"holdout_folds={len(fold_ids)} holdout_ids={fold_ids} parallel_val_folds={args.parallel_val_folds}",
         flush=True,
     )
 
@@ -845,9 +892,13 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
     payload = {
         "task": "cycpeptmpdb_perm",
         "model_name": model_name,
+        "model_variant": model_variant,
         "model_scale": model_scale,
         "training_mode": "full_finetune",
+        "config_name": args.config_name,
         "seed": seed,
+        "max_steps": args.max_steps,
+        "patience": args.patience,
         "learning_rate": learning_rate,
         "batch_size": batch_size,
         "eval_batch_size": eval_batch_size,
@@ -859,6 +910,7 @@ def run_single_experiment(args: argparse.Namespace, model_name: str, seed: int, 
         "warmup_fraction": warmup_fraction,
         "target_scaling": args.target_scaling,
         "parallel_val_folds": int(args.parallel_val_folds),
+        "test_folds": fold_ids,
     }
     (run_dir / "adapter_plan.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     write_baseline_outputs(
@@ -878,6 +930,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--models", nargs="+", default=None)
     parser.add_argument("--model_type", choices=MODEL_TYPES, default=None)
     parser.add_argument("--all_models", action="store_true")
+    parser.add_argument("--config_name", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--seeds", nargs="+", type=int, default=None)
     parser.add_argument("--output_root", type=Path, default=REPO_ROOT / "tmp" / "runs_full_regression_v2")
@@ -896,12 +949,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--target_scaling", choices=("minmax", "none"), default="none")
+    parser.add_argument("--test_folds", nargs="+", type=int, default=None)
     parser.add_argument("--parallel_val_folds", type=int, default=1)
+    parser.add_argument("--parallel_startup_delay_seconds", type=float, default=20.0)
     parser.add_argument("--force", action="store_true", help="Rerun requested seeds even if output metrics already exist.")
     parser.add_argument("--worker_test_fold", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--worker_val_fold", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--worker_output_path", type=Path, default=None, help=argparse.SUPPRESS)
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.config_name = normalize_config_name(args.config_name)
+    return args
 
 
 def update_summary_frame(summary_path: Path, new_rows: list[dict[str, object]]) -> pd.DataFrame:
@@ -917,8 +974,14 @@ def update_summary_frame(summary_path: Path, new_rows: list[dict[str, object]]) 
         return existing_frame
 
     combined = pd.concat([existing_frame, new_frame], ignore_index=True)
-    combined = combined.drop_duplicates(subset=["model_name", "seed"], keep="last")
-    return combined.sort_values(["model_name", "seed"]).reset_index(drop=True)
+    dedupe_columns = ["model_name", "seed"]
+    if "config_name" in combined.columns:
+        dedupe_columns.append("config_name")
+    combined = combined.drop_duplicates(subset=dedupe_columns, keep="last")
+    sort_columns = [column for column in ["model_scale", "model_name", "config_name", "seed"] if column in combined.columns]
+    if not sort_columns:
+        sort_columns = ["model_name", "seed"]
+    return combined.sort_values(sort_columns).reset_index(drop=True)
 
 
 def resolve_models(args: argparse.Namespace) -> list[str]:
@@ -948,15 +1011,21 @@ def resolve_seeds(args: argparse.Namespace) -> list[int]:
     return list(DEFAULT_SEEDS)
 
 
-def has_completed_seed_run(output_root: Path, model_name: str, seed: int) -> bool:
-    model_variant = model_name.split("/")[-1].replace(".", "_")
-    seed_dir = output_root / "cycpeptmpdb_perm" / "peptideclm_fullft_v2" / model_variant / f"seed_{seed}"
+def has_completed_seed_run(output_root: Path, model_name: str, seed: int, config_name: str | None) -> bool:
+    seed_dir = build_run_dir(output_root, model_name, seed, config_name)
     metrics_path = seed_dir / "metrics.csv"
     return metrics_path.exists() and metrics_path.stat().st_size > 0
 
 
 def main() -> int:
+    print(f"[startup] main-enter pid={os.getpid()}", flush=True)
     args = parse_args()
+    print(
+        f"[startup] main-args-parsed pid={os.getpid()} model={args.model} models={args.models} "
+        f"all_models={args.all_models} config_name={args.config_name} "
+        f"test_folds={args.test_folds} parallel_val_folds={args.parallel_val_folds}",
+        flush=True,
+    )
     if not args.data_csv.exists():
         raise FileNotFoundError(f"Input CSV not found: {args.data_csv}")
     if args.parallel_val_folds < 1:
@@ -967,7 +1036,16 @@ def main() -> int:
     )
     models = resolve_models(args)
     seeds = resolve_seeds(args)
+    print(
+        f"[startup] models-resolved pid={os.getpid()} worker_mode={worker_mode} "
+        f"model_count={len(models)} seed_count={len(seeds)} data_csv={args.data_csv}",
+        flush=True,
+    )
     data_frame = normalize_perm_frame(pd.read_csv(args.data_csv))
+    print(
+        f"[startup] data-loaded pid={os.getpid()} rows={len(data_frame)} folds={data_frame['fold'].nunique()}",
+        flush=True,
+    )
     if worker_mode:
         if len(models) != 1 or len(seeds) != 1:
             raise ValueError("Worker mode requires exactly one model and one seed.")
@@ -977,12 +1055,29 @@ def main() -> int:
     summary_rows = []
     for model_name in models:
         for seed in seeds:
-            if not args.force and has_completed_seed_run(args.output_root, model_name, seed):
+            if not args.force and has_completed_seed_run(args.output_root, model_name, seed, args.config_name):
                 print(f"[skip-seed] found completed output for model={model_name} seed={seed}; skipping", flush=True)
                 continue
             result = run_single_experiment(args, model_name=model_name, seed=seed, data_frame=data_frame)
             metric_frame = result["metrics"]
-            summary = {"model_name": model_name, "seed": seed, "run_dir": str(result["run_dir"])}
+            summary = {
+                "model_name": model_name,
+                "model_scale": resolve_model_scale(model_name),
+                "config_name": args.config_name,
+                "seed": seed,
+                "run_dir": str(result["run_dir"]),
+                "test_folds": json.dumps(resolve_test_folds(data_frame, args.test_folds)),
+                "max_steps": args.max_steps,
+                "patience": args.patience,
+                "learning_rate": resolve_learning_rate(model_name, args.learning_rate),
+                "weight_decay": resolve_weight_decay(model_name, args.weight_decay),
+                "head_dropout": resolve_head_dropout(model_name, args.head_dropout),
+                "warmup_fraction": resolve_warmup_fraction(model_name, args.warmup_fraction),
+                "batch_size": resolve_batch_size(model_name, args.batch_size),
+                "eval_batch_size": resolve_eval_batch_size(model_name, args.eval_batch_size),
+                "accumulate_grad_batches": resolve_accumulate_grad_batches(model_name, args.accumulate_grad_batches),
+                "parallel_val_folds": int(args.parallel_val_folds),
+            }
             for _, row in metric_frame.iterrows():
                 summary[row["metric_name"]] = row["metric_value"]
             summary_rows.append(summary)

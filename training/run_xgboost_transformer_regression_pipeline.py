@@ -54,6 +54,41 @@ DEFAULT_MODELS = [
 DEFAULT_SEEDS = [101, 202, 303]
 DESCRIPTOR_FEATURE_SETS = ["rdkit", "morgan"]
 PCA_MODES = ("off", "auto", "all")
+XGBOOST_SIZE_DEFAULTS = {
+    "small": {
+        "n_estimators": 1500,
+        "max_depth": 6,
+        "learning_rate": 0.05,
+        "subsample": 0.85,
+        "colsample_bytree": 0.75,
+        "min_child_weight": 1.0,
+        "reg_lambda": 1.0,
+        "reg_alpha": 0.0,
+        "early_stopping_rounds": 40,
+    },
+    "base": {
+        "n_estimators": 2000,
+        "max_depth": 4,
+        "learning_rate": 0.03,
+        "subsample": 0.80,
+        "colsample_bytree": 0.50,
+        "min_child_weight": 4.0,
+        "reg_lambda": 2.0,
+        "reg_alpha": 0.0,
+        "early_stopping_rounds": 60,
+    },
+    "large": {
+        "n_estimators": 2500,
+        "max_depth": 4,
+        "learning_rate": 0.025,
+        "subsample": 0.75,
+        "colsample_bytree": 0.35,
+        "min_child_weight": 6.0,
+        "reg_lambda": 3.0,
+        "reg_alpha": 0.25,
+        "early_stopping_rounds": 80,
+    },
+}
 
 
 def masked_mean_pool(last_hidden_state: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
@@ -169,6 +204,76 @@ def compute_regression_metrics_with_mse(y_true: np.ndarray, y_pred: np.ndarray) 
     }
 
 
+def build_target_bin_sample_weights(targets: np.ndarray, bin_count: int) -> np.ndarray | None:
+    if len(targets) < 2 or bin_count <= 1:
+        return None
+
+    target_frame = pd.DataFrame({"target": np.asarray(targets, dtype=np.float32)})
+    target_bins = pd.cut(target_frame["target"], bins=bin_count, duplicates="drop")
+    if target_bins.isna().all():
+        return None
+
+    bin_codes = target_bins.cat.codes.to_numpy()
+    valid_mask = bin_codes >= 0
+    if valid_mask.sum() <= 1:
+        return None
+
+    unique_codes, counts = np.unique(bin_codes[valid_mask], return_counts=True)
+    if len(unique_codes) <= 1:
+        return None
+
+    count_map = {int(code): int(count) for code, count in zip(unique_codes, counts)}
+    sample_weights = np.ones(len(targets), dtype=np.float32)
+    for index, code in enumerate(bin_codes):
+        if code >= 0:
+            sample_weights[index] = 1.0 / float(count_map[int(code)])
+    # Preserve the original effective sample mass so XGBoost's split thresholds
+    # (especially min_child_weight) behave like balanced oversampling rather than
+    # collapsing the total training weight to roughly the number of bins.
+    total_weight = float(sample_weights.sum())
+    if total_weight <= 1e-8:
+        return None
+    sample_weights *= float(len(sample_weights)) / total_weight
+    return sample_weights
+
+
+def upsample_target_bins(
+    train_x: np.ndarray,
+    train_y: np.ndarray,
+    bin_count: int,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    if len(train_y) < 2 or bin_count <= 1:
+        return train_x, train_y
+
+    target_frame = pd.DataFrame({"target": np.asarray(train_y, dtype=np.float32)})
+    target_bins = pd.cut(target_frame["target"], bins=bin_count, duplicates="drop")
+    if target_bins.isna().all():
+        return train_x, train_y
+
+    bin_codes = target_bins.cat.codes.to_numpy()
+    valid_codes = bin_codes[bin_codes >= 0]
+    if len(valid_codes) <= 1:
+        return train_x, train_y
+
+    unique_codes, counts = np.unique(valid_codes, return_counts=True)
+    if len(unique_codes) <= 1:
+        return train_x, train_y
+
+    rng = np.random.default_rng(seed)
+    max_count = int(np.max(counts))
+    sampled_indices: list[np.ndarray] = []
+    for code in unique_codes:
+        group_indices = np.where(bin_codes == code)[0]
+        replace = len(group_indices) < max_count
+        sampled_group = rng.choice(group_indices, size=max_count, replace=replace)
+        sampled_indices.append(sampled_group.astype(np.int64))
+
+    balanced_indices = np.concatenate(sampled_indices)
+    rng.shuffle(balanced_indices)
+    return train_x[balanced_indices], train_y[balanced_indices]
+
+
 def resolve_pca_components(feature_dim: int, train_count: int, requested_components: int) -> int:
     max_components = min(feature_dim, max(1, train_count - 1))
     return min(requested_components, max_components)
@@ -206,55 +311,71 @@ def maybe_apply_fold_pca(
     return train_reduced, val_reduced, test_reduced, effective_components
 
 
+def resolve_model_scale(model_label: str | None, embedding_dim: int) -> str:
+    normalized_label = (model_label or "").lower().replace("_", "-")
+    for scale in ("small", "base", "large"):
+        if f"-{scale}" in normalized_label:
+            return scale
+    if embedding_dim >= 1024:
+        return "large"
+    if embedding_dim >= 768:
+        return "base"
+    return "small"
+
+
+def resolve_xgboost_config(model_label: str | None, embedding_dim: int, args: argparse.Namespace) -> dict[str, float | int | str]:
+    scale = resolve_model_scale(model_label, embedding_dim)
+    config = dict(XGBOOST_SIZE_DEFAULTS[scale])
+    overrides = {
+        "n_estimators": args.xgb_n_estimators,
+        "max_depth": args.xgb_max_depth,
+        "learning_rate": args.xgb_learning_rate,
+        "subsample": args.xgb_subsample,
+        "colsample_bytree": args.xgb_colsample_bytree,
+        "min_child_weight": args.xgb_min_child_weight,
+        "reg_lambda": args.xgb_reg_lambda,
+        "reg_alpha": args.xgb_reg_alpha,
+        "early_stopping_rounds": args.xgb_early_stopping_rounds,
+    }
+    for key, value in overrides.items():
+        if value is not None:
+            config[key] = value
+    config["scale"] = scale
+    return config
+
+
 def fit_regression_model(
     train_x: np.ndarray,
     train_y: np.ndarray,
     val_x: np.ndarray,
     val_y: np.ndarray,
+    train_sample_weight: np.ndarray | None,
     seed: int,
     n_jobs: int,
+    xgboost_config: dict[str, float | int | str],
 ) -> XGBRegressor:
-    embedding_dim = train_x.shape[1]
-
-    # # Dynamically tune hyperparameters based on embedding size
-    # if embedding_dim >= 1024:  # Large scale
-    #     colsample = 0.25
-    #     max_depth = 4
-    #     lr = 0.02
-    # elif embedding_dim >= 768:  # Base scale
-    #     colsample = 0.45
-    #     max_depth = 5
-    #     lr = 0.03
-    # else:  # Small scale (512 or below)
-    #     colsample = 0.75
-    #     max_depth = 6
-    #     lr = 0.05
-
-    # Use the prior 32M/"small" XGBoost settings for all embedding sizes.
-    # The size-specific retune was too aggressive and made results worse, so
-    # keep one conservative configuration until we have cleaner ablations.
-    colsample = 0.75
-    max_depth = 6
-    lr = 0.05
-
     model = XGBRegressor(
         objective="reg:squarederror",
         eval_metric="rmse",
         random_state=seed,
-        n_estimators=1500,  # Generous cap, let early stopping do the work
-        max_depth=max_depth,
-        learning_rate=lr,
-        subsample=0.85,
-        colsample_bytree=colsample,
+        n_estimators=int(xgboost_config["n_estimators"]),
+        max_depth=int(xgboost_config["max_depth"]),
+        learning_rate=float(xgboost_config["learning_rate"]),
+        subsample=float(xgboost_config["subsample"]),
+        colsample_bytree=float(xgboost_config["colsample_bytree"]),
+        min_child_weight=float(xgboost_config["min_child_weight"]),
+        reg_lambda=float(xgboost_config["reg_lambda"]),
+        reg_alpha=float(xgboost_config["reg_alpha"]),
         tree_method="hist",
         device="cpu",
         n_jobs=n_jobs,
-        early_stopping_rounds=40,
+        early_stopping_rounds=int(xgboost_config["early_stopping_rounds"]),
     )
 
     model.fit(
         train_x,
         train_y,
+        sample_weight=train_sample_weight,
         eval_set=[(val_x, val_y)],
         verbose=False,
     )
@@ -301,9 +422,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--n_jobs", type=int, default=-1)
-    parser.add_argument("--pca_mode", choices=PCA_MODES, default="auto")
-    parser.add_argument("--pca_components", type=int, default=256)
-    parser.add_argument("--pca_auto_threshold", type=int, default=256)
+    parser.add_argument("--pca_mode", choices=PCA_MODES, default="off")
+    parser.add_argument("--pca_components", type=int, default=512)
+    parser.add_argument("--pca_auto_threshold", type=int, default=512)
+    parser.add_argument("--xgb_n_estimators", type=int, default=None)
+    parser.add_argument("--xgb_max_depth", type=int, default=None)
+    parser.add_argument("--xgb_learning_rate", type=float, default=None)
+    parser.add_argument("--xgb_subsample", type=float, default=None)
+    parser.add_argument("--xgb_colsample_bytree", type=float, default=None)
+    parser.add_argument("--xgb_min_child_weight", type=float, default=None)
+    parser.add_argument("--xgb_reg_lambda", type=float, default=None)
+    parser.add_argument("--xgb_reg_alpha", type=float, default=None)
+    parser.add_argument("--xgb_early_stopping_rounds", type=int, default=None)
+    parser.add_argument("--rebalance_train_bins", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--rebalance_bin_count", type=int, default=5)
+    parser.add_argument("--rebalance_mode", choices=("upsample", "sample_weight"), default="upsample")
     return parser.parse_args()
 
 
@@ -330,6 +463,10 @@ def round_robin_ensemble_predictions(
     data_frame: pd.DataFrame,
     seed: int,
     n_jobs: int,
+    xgboost_config: dict[str, float | int | str],
+    rebalance_train_bins: bool = True,
+    rebalance_bin_count: int = 5,
+    rebalance_mode: str = "upsample",
     pca_mode: str = "off",
     pca_components: int = 256,
     pca_auto_threshold: int = 256,
@@ -358,6 +495,17 @@ def round_robin_ensemble_predictions(
             val_x = features[val_mask.to_numpy()]
             train_y = np.asarray(data_frame.loc[train_mask, "value"], dtype=np.float32)
             val_y = np.asarray(data_frame.loc[val_mask, "value"], dtype=np.float32)
+            train_sample_weight = None
+            if rebalance_train_bins:
+                if rebalance_mode == "upsample":
+                    train_x, train_y = upsample_target_bins(
+                        train_x,
+                        train_y,
+                        bin_count=rebalance_bin_count,
+                        seed=seed + int(fold_id) + int(val_fold),
+                    )
+                else:
+                    train_sample_weight = build_target_bin_sample_weights(train_y, bin_count=rebalance_bin_count)
             test_x = test_x_full
 
             train_x, val_x, test_x, fold_pca_components = maybe_apply_fold_pca(
@@ -377,8 +525,10 @@ def round_robin_ensemble_predictions(
                 train_y,
                 val_x,
                 val_y,
+                train_sample_weight,
                 seed + int(fold_id) + int(val_fold),
                 n_jobs=n_jobs,
+                xgboost_config=xgboost_config,
             )
             current_predictions = regressor.predict(test_x).astype(np.float32)
             fold_predictions.append(current_predictions)
@@ -434,7 +584,7 @@ def main() -> int:
     effective_n_jobs = os.cpu_count() if args.n_jobs == -1 else args.n_jobs
 
     print(
-        f"[run-start] task={args.task} device={device} transformer_models={len(models)} descriptor_sets={len(DESCRIPTOR_FEATURE_SETS)} seeds={seeds} xgboost_n_jobs={effective_n_jobs} pca_mode={args.pca_mode} pca_components={args.pca_components} pca_auto_threshold={args.pca_auto_threshold}",
+        f"[run-start] task={args.task} device={device} transformer_models={len(models)} descriptor_sets={len(DESCRIPTOR_FEATURE_SETS)} seeds={seeds} xgboost_n_jobs={effective_n_jobs} pca_mode={args.pca_mode} pca_components={args.pca_components} pca_auto_threshold={args.pca_auto_threshold} rebalance_train_bins={args.rebalance_train_bins} rebalance_bin_count={args.rebalance_bin_count} rebalance_mode={args.rebalance_mode}",
         flush=True,
     )
 
@@ -456,6 +606,16 @@ def main() -> int:
             batch_size=args.batch_size,
             max_length=args.max_length,
         )
+        xgboost_config = resolve_xgboost_config(model_name, int(features.shape[1]), args)
+        print(
+            f"[model-config] transformer model={model_name} feature_dim={features.shape[1]} scale={xgboost_config['scale']} "
+            f"xgb={{n_estimators={xgboost_config['n_estimators']}, max_depth={xgboost_config['max_depth']}, "
+            f"learning_rate={xgboost_config['learning_rate']}, subsample={xgboost_config['subsample']}, "
+            f"colsample_bytree={xgboost_config['colsample_bytree']}, min_child_weight={xgboost_config['min_child_weight']}, "
+            f"reg_lambda={xgboost_config['reg_lambda']}, reg_alpha={xgboost_config['reg_alpha']}, "
+            f"early_stopping_rounds={xgboost_config['early_stopping_rounds']}, rebalance_train_bins={args.rebalance_train_bins}, rebalance_bin_count={args.rebalance_bin_count}, rebalance_mode={args.rebalance_mode}}}",
+            flush=True,
+        )
 
         if args.cache_only:
             print(f"[model-cached] transformer model={model_name}", flush=True)
@@ -474,6 +634,10 @@ def main() -> int:
                 data_frame,
                 seed,
                 n_jobs=args.n_jobs,
+                xgboost_config=xgboost_config,
+                rebalance_train_bins=args.rebalance_train_bins,
+                rebalance_bin_count=args.rebalance_bin_count,
+                rebalance_mode=args.rebalance_mode,
                 pca_mode=args.pca_mode,
                 pca_components=args.pca_components,
                 pca_auto_threshold=args.pca_auto_threshold,
@@ -494,6 +658,10 @@ def main() -> int:
                 "feature_source": "transformer_embedding",
                 "strategy": "provided_fold_round_robin_ensemble",
                 "fold_count": fold_count,
+                "xgboost_config": xgboost_config,
+                "rebalance_train_bins": bool(args.rebalance_train_bins),
+                "rebalance_bin_count": int(args.rebalance_bin_count),
+                "rebalance_mode": args.rebalance_mode,
                 "pca_mode": args.pca_mode,
                 "pca_requested_components": args.pca_components,
                 "pca_auto_threshold": args.pca_auto_threshold,
@@ -551,6 +719,11 @@ def main() -> int:
         cache_path = args.cache_root / descriptor_variant / args.task / "full.npy"
         print(f"[model-start] descriptor feature_set={feature_set}", flush=True)
         features = get_cached_descriptor_features(feature_set, smiles_values, cache_path)
+        xgboost_config = resolve_xgboost_config("descriptor-small", features.shape[1], args)
+        print(
+            f"[model-config] descriptor feature_set={feature_set} feature_dim={features.shape[1]} scale={xgboost_config['scale']} xgb={{{', '.join(f'{key}={value}' for key, value in xgboost_config.items() if key != 'scale')}}} rebalance_train_bins={args.rebalance_train_bins} rebalance_bin_count={args.rebalance_bin_count} rebalance_mode={args.rebalance_mode}",
+            flush=True,
+        )
 
         if args.cache_only:
             print(f"[model-cached] descriptor feature_set={feature_set}", flush=True)
@@ -569,6 +742,10 @@ def main() -> int:
                 data_frame,
                 seed,
                 n_jobs=args.n_jobs,
+                xgboost_config=xgboost_config,
+                rebalance_train_bins=args.rebalance_train_bins,
+                rebalance_bin_count=args.rebalance_bin_count,
+                rebalance_mode=args.rebalance_mode,
             )
             metrics = compute_regression_metrics_with_mse(
                 data_frame["value"].to_numpy(dtype=np.float32),
@@ -584,6 +761,10 @@ def main() -> int:
                 "feature_source": "descriptor",
                 "strategy": "provided_fold_round_robin_ensemble",
                 "fold_count": fold_count,
+                "xgboost_config": xgboost_config,
+                "rebalance_train_bins": bool(args.rebalance_train_bins),
+                "rebalance_bin_count": int(args.rebalance_bin_count),
+                "rebalance_mode": args.rebalance_mode,
             }
             (run_dir / "adapter_plan.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -627,10 +808,10 @@ def main() -> int:
             summary = {"model_name": feature_set, "seed": seed, "run_dir": str(run_dir)}
             summary.update(metrics)
             summary_rows.append(summary)
-        print(
-        f"[seed-done] descriptor feature_set={feature_set} seed={seed} r2={metrics['r2']:.4f} rmse={metrics['rmse']:.4f} mae={metrics['mae']:.4f}",
-        flush=True,
-        )
+            print(
+                f"[seed-done] descriptor feature_set={feature_set} seed={seed} r2={metrics['r2']:.4f} rmse={metrics['rmse']:.4f} mae={metrics['mae']:.4f}",
+                flush=True,
+            )
 
     if args.cache_only:
         print(f"[cache-only-done] caches available under {args.cache_root / args.task}", flush=True)

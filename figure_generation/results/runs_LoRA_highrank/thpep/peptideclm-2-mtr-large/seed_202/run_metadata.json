@@ -1,0 +1,30 @@
+{
+  "task": "thpep",
+  "model_family": "peptideclm",
+  "model_name": "aaronfeller/peptideclm-2-mtr-large",
+  "seed": 202,
+  "gpu_index": 3,
+  "fold": null,
+  "command": [
+    "python",
+    "training/classification_finetuning_v2.py",
+    "--dataset",
+    "THPep",
+    "--gpu",
+    "3",
+    "--gpu_index",
+    "3",
+    "--model_name",
+    "aaronfeller/peptideclm-2-mtr-large",
+    "--save_path",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/runs_LoRA_highrank/thpep/peptideclm/peptideclm-2-mtr-large/seed_202",
+    "--output_dir",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/runs_LoRA_highrank/thpep/peptideclm/peptideclm-2-mtr-large/seed_202",
+    "--data_dir",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/prepared_data/thpep/seed_202",
+    "--log_dir",
+    "/novo/users/arvf/peptideclm-2/PeptideCLM-2/tmp/logs/thpep/peptideclm/peptideclm-2-mtr-large/seed_202",
+    "--seed",
+    "202"
+  ]
+}

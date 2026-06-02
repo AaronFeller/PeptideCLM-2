@@ -1,0 +1,8 @@
+{
+  "task": "cellppd",
+  "feature_set": "morgan",
+  "seed": 303,
+  "status": "ready",
+  "strategy": "five_fold_test_ensemble",
+  "fold_count": 5
+}

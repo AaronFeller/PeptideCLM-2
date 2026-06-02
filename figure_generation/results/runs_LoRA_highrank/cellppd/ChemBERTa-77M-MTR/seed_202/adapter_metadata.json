@@ -1,0 +1,13 @@
+{
+  "task": "cellppd",
+  "model_name": "DeepChem/ChemBERTa-77M-MTR",
+  "seed": 202,
+  "status": "ready",
+  "strategy": "five_fold_test_ensemble",
+  "fold_count": 5,
+  "batch_size": 8,
+  "learning_rate": 2e-05,
+  "max_epochs": 8,
+  "patience": 2,
+  "max_length": 512
+}

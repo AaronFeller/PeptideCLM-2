@@ -1,0 +1,12 @@
+{
+  "task": "cellppd",
+  "model_name": "CheMeleon",
+  "seed": 303,
+  "status": "ready",
+  "release_hint": "v1.0.0",
+  "strategy": "five_fold_test_ensemble",
+  "fold_count": 5,
+  "batch_size": 32,
+  "epochs": 30,
+  "patience": 8
+}
