@@ -5,12 +5,14 @@ import math
 import re
 
 import pandas as pd
+from sklearn.metrics import roc_auc_score
 from scipy.stats import t
 
 
 RESULTS_ROOT = Path(__file__).resolve().parent
 METRICS_OUTPUT_PATH = RESULTS_ROOT / "results_metrics_summary.csv"
 OUTPUT_PATH = RESULTS_ROOT / "results_category_summary.csv"
+AUROC_POSITIVE_CUTOFF = -5.5
 
 
 def compute_mean_ci95(values: pd.Series) -> tuple[float, float | None, float | None]:
@@ -25,6 +27,16 @@ def compute_mean_ci95(values: pd.Series) -> tuple[float, float | None, float | N
 
     margin = float(t.ppf(0.975, df=len(numeric) - 1) * sample_std / math.sqrt(len(numeric)))
     return mean_value, mean_value - margin, mean_value + margin
+
+
+def compute_mean_and_std(values: pd.Series) -> tuple[float | None, float | None]:
+    numeric = pd.to_numeric(values, errors="coerce").dropna()
+    if numeric.empty:
+        return None, None
+
+    mean_value = float(numeric.mean())
+    std_value = float(numeric.std(ddof=1)) if len(numeric) > 1 else 0.0
+    return mean_value, std_value
 
 
 def compute_run_metrics(frame: pd.DataFrame) -> dict[str, float | int]:
@@ -47,11 +59,16 @@ def compute_run_metrics(frame: pd.DataFrame) -> dict[str, float | int]:
     r2 = float(1.0 - ((residual**2).sum() / total_var)) if total_var != 0.0 else float("nan")
     pearson = float(y_true.corr(y_pred, method="pearson"))
     spearman = float(y_true.corr(y_pred, method="spearman"))
+    binary_targets = (y_true >= AUROC_POSITIVE_CUTOFF).astype(int)
+    auroc = None
+    if binary_targets.nunique() == 2:
+        auroc = float(roc_auc_score(binary_targets, y_pred))
     return {
         "row_count": int(len(frame)),
         "valid_row_count": int(len(y_true)),
         "dropped_row_count": dropped_row_count,
         "r2": r2,
+        "auroc": auroc,
         "mse": mse,
         "rmse": rmse,
         "mae": mae,
@@ -85,6 +102,7 @@ def build_metrics_summary(results_root: Path) -> pd.DataFrame:
                         "valid_row_count": None,
                         "dropped_row_count": None,
                         "r2": None,
+                        "auroc": None,
                         "mse": None,
                         "rmse": None,
                         "mae": None,
@@ -105,6 +123,7 @@ def build_metrics_summary(results_root: Path) -> pd.DataFrame:
                     "valid_row_count": None,
                     "dropped_row_count": None,
                     "r2": None,
+                    "auroc": None,
                     "mse": None,
                     "rmse": None,
                     "mae": None,
@@ -155,6 +174,7 @@ def build_category_summary(frame: pd.DataFrame) -> pd.DataFrame:
         best_r2_row = group_frame.loc[group_frame["r2"].idxmax()]
         mean_rmse, rmse_ci95_low, rmse_ci95_high = compute_mean_ci95(group_frame["rmse"])
         mean_r2, r2_ci95_low, r2_ci95_high = compute_mean_ci95(group_frame["r2"])
+        mean_auroc, std_auroc = compute_mean_and_std(group_frame["auroc"])
         mean_mae, mae_ci95_low, mae_ci95_high = compute_mean_ci95(group_frame["mae"])
         mean_spearman, spearman_ci95_low, spearman_ci95_high = compute_mean_ci95(group_frame["spearman"])
         rows.append(
@@ -173,6 +193,8 @@ def build_category_summary(frame: pd.DataFrame) -> pd.DataFrame:
                 "r2_ci95_low": r2_ci95_low,
                 "r2_ci95_high": r2_ci95_high,
                 "median_r2": float(group_frame["r2"].median()),
+                "mean_auroc": mean_auroc,
+                "std_auroc": std_auroc,
                 "mean_mae": mean_mae,
                 "mae_ci95_low": mae_ci95_low,
                 "mae_ci95_high": mae_ci95_high,
