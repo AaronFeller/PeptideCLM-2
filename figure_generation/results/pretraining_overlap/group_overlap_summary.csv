@@ -1,0 +1,6 @@
+dataset_group,source_files,total_rows,valid_canonical_rows,invalid_or_missing_smiles_rows,overlapping_rows,row_overlap_fraction,row_overlap_percent,unique_canonical_smiles,overlapping_unique_smiles,unique_overlap_fraction,unique_overlap_percent
+CellPPD,CellPPD_test.csv;CellPPD_train.csv,1464,1464,0,12,0.00819672131147541,0.819672131147541,1339,12,0.008961911874533234,0.8961911874533234
+PAMPA_clusters,PAMPA_clusters.csv,6701,6701,0,565,0.08431577376510968,8.431577376510969,6649,536,0.08061362610918935,8.061362610918936
+PepMSND_clustered_data,PepMSND_clustered_data.csv,640,640,0,186,0.290625,29.0625,605,172,0.28429752066115704,28.429752066115704
+THPep_main90_smiles_classes,THPep_main90_smiles_classes.csv,609,609,0,4,0.006568144499178982,0.6568144499178982,609,4,0.006568144499178982,0.6568144499178982
+amp,amp_test.csv;amp_train.csv;amp_val.csv,16900,16900,0,481,0.02846153846153846,2.8461538461538463,16841,477,0.028323733745027016,2.8323733745027018

@@ -1,0 +1,43 @@
+{
+  "pretraining_dataset": "aaronfeller/peptideclm-2-pretraining-data",
+  "pretraining_split": "train",
+  "pretraining_smiles_column": "smiles",
+  "pretraining_access_mode": "in_memory_set",
+  "canonicalize_pretraining": false,
+  "pretraining_examples_scanned": 117703297,
+  "pretraining_num_rows": 117703297,
+  "pretraining_unique_smiles_loaded": 117660424,
+  "pretraining_batch_size": 100000,
+  "pretraining_parquet_shards": [
+    "datasets/aaronfeller/peptideclm-2-pretraining-data/train/lipids.parquet",
+    "datasets/aaronfeller/peptideclm-2-pretraining-data/train/peptides.parquet",
+    "datasets/aaronfeller/peptideclm-2-pretraining-data/train/small_molecules.parquet"
+  ],
+  "target_unique_smiles": 26029,
+  "matched_unique_smiles": 1194,
+  "unmatched_unique_smiles": 24835,
+  "all_targets_found": false,
+  "finetuning_files": [
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/data/PepMSND_clustered_data.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/data/amp_train.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/data/amp_val.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/data/amp_test.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/data/CellPPD_train.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/data/CellPPD_test.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/data/PAMPA_clusters.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/data/THPep_main90_smiles_classes.csv"
+  ],
+  "output_dir": "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap",
+  "file_summary_path": "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/file_overlap_summary.csv",
+  "group_summary_path": "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/group_overlap_summary.csv",
+  "details_files": [
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/PepMSND_clustered_data_overlap_details.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/amp_train_overlap_details.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/amp_val_overlap_details.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/amp_test_overlap_details.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/CellPPD_train_overlap_details.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/CellPPD_test_overlap_details.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/PAMPA_clusters_overlap_details.csv",
+    "/stor/work/Wilke/afeller/peptideclm2_revisions/PeptideCLM-2/figure_generation/results/pretraining_overlap/THPep_main90_smiles_classes_overlap_details.csv"
+  ]
+}
